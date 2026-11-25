@@ -1,0 +1,13 @@
+name: Feature idea
+description: Something Bigtop Player should do
+labels: [idea]
+body:
+  - type: textarea
+    attributes:
+      label: The problem
+      description: What do you want to do during a show that you cannot do now?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Your idea

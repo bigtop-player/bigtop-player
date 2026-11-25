@@ -1,0 +1,43 @@
+# Only settings that differ from Doxygen's defaults.
+
+PROJECT_NAME           = "Bigtop Player"
+# Keep generated docs inside the git-ignored build folder.
+# Doxygen creates only one missing directory level, so a fresh checkout (no
+# build/ yet, as on CI) needs the output root to be build/ itself.
+OUTPUT_DIRECTORY       = build
+HTML_OUTPUT            = docs
+# Document core, io and the app.
+INPUT                  = core/include core/src io/include io/src app
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.cpp
+
+# Only the documented public API is extracted; undocumented items must warn.
+EXTRACT_ALL            = NO
+# File-local statics need ordinary reasoning comments, not Doxygen.
+EXTRACT_STATIC         = NO
+# Same for anonymous-namespace helpers in .cpp files.
+EXTRACT_ANON_NSPACES   = NO
+# Private members are not public API.
+EXTRACT_PRIVATE        = NO
+
+# Report problems...
+WARNINGS               = YES
+# ...for anything public without a comment,
+WARN_IF_UNDOCUMENTED   = YES
+# for malformed comments,
+WARN_IF_DOC_ERROR      = YES
+# for missing @param / @return,
+WARN_IF_INCOMPLETE_DOC = YES
+WARN_NO_PARAMDOC       = YES
+# and make any warning a non-zero exit code so CI fails.
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+
+GENERATE_HTML          = YES
+# No PDF output needed.
+GENERATE_LATEX         = NO
+# Print warnings only.
+QUIET                  = YES
+# Require explicit @brief, as the project rule says.
+JAVADOC_AUTOBRIEF      = NO
+# No Graphviz dependency.
+HAVE_DOT               = NO

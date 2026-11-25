@@ -1,0 +1,26 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Drop two WAV files on the list\n2. Press GO twice\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version and operating system
+      placeholder: "v0.3.0 on Windows 11"
+    validations:
+      required: true

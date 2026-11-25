@@ -1,0 +1,123 @@
+name: CI
+# Runs for pull requests and for main / release tags only: a push to a work branch
+# costs no CI minutes, and a push to a branch with an open PR runs once, not twice.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build --config Debug
+      - run: ctest --test-dir build -C Debug --output-on-failure
+
+  io:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      # juce_audio_devices needs ALSA; JUCE's juceaide helper (built at
+      # configure time) always compiles juce_graphics, which needs FreeType and
+      # fontconfig. juce_core's rt/dl/pthread come with libc; no X11/curl needed.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfreetype-dev libfontconfig1-dev
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_BUILD_IO=ON
+      - run: cmake --build build --config Debug
+      - run: ctest --test-dir build -C Debug --output-on-failure
+
+  tsan:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v6
+      # The runner's high mmap randomisation makes TSan abort at startup
+      # ("unexpected memory mapping"); 28 bits is what TSan supports.
+      - run: sudo sysctl vm.mmap_rnd_bits=28
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_TSAN=ON
+      - run: cmake --build build --target bigtop_core_tests
+      # Any race report makes the run exit non-zero, failing the job.
+      - run: ./build/core/bigtop_core_tests
+
+  app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cmake -B build -DBIGTOP_BUILD_APP=ON
+      - run: cmake --build build --config Debug
+      # The windowless GUI tests (app/tests); no window, audio device or packet. A CRT assert ends the exe with code 3, never a dialog.
+      - run: ctest --test-dir build -C Debug -R "^app:" --output-on-failure
+      # The shipped exe is Release; its warnings and optimiser-only errors show only here.
+      - run: cmake --build build --config Release --target bigtop_app
+      # The docs screenshots must still render (exit code only; the PNGs are not compared). No audio device is used.
+      - name: Render the docs screenshots
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/app/bigtop_app_artefacts/Release/Bigtop Player.exe" -ArgumentList "--docs-screenshots", "$env:RUNNER_TEMP/docs-images" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "docs screenshots failed with exit code $($p.ExitCode)" }
+      # The runtime is linked statically (top-level CMakeLists.txt); fail if a VC runtime DLL sneaks back in.
+      - name: Check the exe needs no VC runtime
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object FullName -like '*Hostx64*x64*' | Select-Object -First 1
+          $deps = & $dumpbin.FullName /dependents "build/app/bigtop_app_artefacts/Release/Bigtop Player.exe"
+          $deps
+          if ($deps -match '(?i)vcruntime|msvcp') { throw 'exe depends on the VC runtime DLLs' }
+      # Only main and release tags publish a download; other branches stop after the build.
+      # The zip holds the exe only (no .pdb or import libs).
+      - name: Collect the Windows app
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item "build/app/bigtop_app_artefacts/Release/Bigtop Player.exe" dist -ErrorAction Stop
+          "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_ENV
+      # upload-artifact serves the folder as one zip download.
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: BigtopPlayer-windows-${{ env.SHORT_SHA }}
+          path: dist
+          if-no-files-found: error
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y doxygen
+      # WARN_AS_ERROR = FAIL_ON_WARNINGS makes any Doxygen warning fail the job.
+      - run: doxygen Doxyfile
+
+  # A v* tag in the public repository becomes a GitHub Release with the Windows zip.
+  # Private copies of this workflow skip it, so a tag there publishes nothing.
+  release:
+    needs: app
+    if: startsWith(github.ref, 'refs/tags/v') && !github.event.repository.private
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: BigtopPlayer-windows-*
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip="BigtopPlayer-windows-${GITHUB_REF_NAME}.zip"
+          (cd dist && zip -q "../$zip" "Bigtop Player.exe")
+          gh release create "$GITHUB_REF_NAME" "$zip" --repo "$GITHUB_REPOSITORY" --generate-notes
