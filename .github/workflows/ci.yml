@@ -1,11 +1,25 @@
 name: CI
 # Runs for pull requests and for main / release tags only: a push to a work branch
 # costs no CI minutes, and a push to a branch with an open PR runs once, not twice.
+# A change to docs only builds nothing: Doxygen reads only the sources, so docs cannot
+# break a job. Tag pushes ignore path filters, so every release is still built.
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
 
 jobs:
   core:
