@@ -3,6 +3,11 @@
 # BIGTOP_BUILD_IO); app/ is the JUCE desktop app (opt-in, BIGTOP_BUILD_APP,
 # which needs io). Third-party dependencies are pinned to exact tags and
 # fetched at configure time; JUCE and r8brain only when io is built.
+# MSVC debug info goes into each .obj (/Z7) instead of one shared PDB (/Zi): a compiler
+# cache (sccache in CI) can only reuse objects that carry their own debug info. Set before
+# cmake_minimum_required, which is where CMake reads it. Fetched projects such as JUCE
+# inherit the format variable below.
+set(CMAKE_POLICY_DEFAULT_CMP0141 NEW)
 cmake_minimum_required(VERSION 3.20)
 project(BigtopPlayer VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -13,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Static MSVC runtime: the exe runs on a clean laptop with no Visual C++
 # redistributable. Set before any target (incl. fetched JUCE/Catch2) so all agree.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 
 option(BIGTOP_BUILD_IO "Build the JUCE-based io library and its tests" OFF)
 option(BIGTOP_BUILD_APP "Build the JUCE app (forces BIGTOP_BUILD_IO on)" OFF)

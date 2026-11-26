@@ -41,8 +41,40 @@ jobs:
           path: |
             build/_deps/*-src
             build/_deps/*-subbuild
-          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+          # The generator is part of the key: a cached sub-build only works with the one that made it.
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-
+      # On Windows, Ninja runs MSVC instead of the Visual Studio generator: only Ninja lets a
+      # compiler cache sit in front of cl.exe. The developer environment puts cl on PATH.
+      - &msvc-env
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - &ninja
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "CMAKE_GENERATOR=Ninja Multi-Config" >> "$GITHUB_ENV"
+      # Compiled objects come from ccache (Linux) or sccache (Windows). Both key on the
+      # preprocessed source and the flags, so a changed file or header is always rebuilt.
+      # Release tags build from scratch.
+      - &compiler-cache
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+          key: ${{ github.job }}-${{ runner.os }}
+          # Only main saves, so pull requests cannot crowd the main caches out of the 10 GB
+          # repository limit; they restore from main. The app job builds Debug and Release.
+          save: ${{ github.ref == 'refs/heads/main' }}
+          evict-old-files: job
+          max-size: ${{ github.job == 'app' && '1G' || '500M' }}
+      - &compiler-launcher
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        shell: bash
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=$LAUNCHER" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=$LAUNCHER" >> "$GITHUB_ENV"
+        env:
+          LAUNCHER: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
       - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --config Debug
       - run: ctest --test-dir build -C Debug --output-on-failure
@@ -61,8 +93,13 @@ jobs:
           path: |
             build/_deps/*-src
             build/_deps/*-subbuild
-          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+          # The generator is part of the key: a cached sub-build only works with the one that made it.
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-
+      - *msvc-env
+      - *ninja
+      - *compiler-cache
+      - *compiler-launcher
       # juce_audio_devices needs ALSA; JUCE's juceaide helper (built at
       # configure time) always compiles juce_graphics, which needs FreeType and
       # fontconfig. juce_core's rt/dl/pthread come with libc; no X11/curl needed.
@@ -86,8 +123,11 @@ jobs:
           path: |
             build/_deps/*-src
             build/_deps/*-subbuild
-          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+          # The generator is part of the key: a cached sub-build only works with the one that made it.
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-
+      - *compiler-cache
+      - *compiler-launcher
       # The runner's high mmap randomisation makes TSan abort at startup
       # ("unexpected memory mapping"); 28 bits is what TSan supports.
       - run: sudo sysctl vm.mmap_rnd_bits=28
@@ -107,8 +147,13 @@ jobs:
           path: |
             build/_deps/*-src
             build/_deps/*-subbuild
-          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+          # The generator is part of the key: a cached sub-build only works with the one that made it.
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-${{ runner.os == 'Windows' && 'ninja' || 'make' }}-
+      - *msvc-env
+      - *ninja
+      - *compiler-cache
+      - *compiler-launcher
       - run: cmake -B build -DBIGTOP_BUILD_APP=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --config Debug
       # The windowless GUI tests (app/tests); no window, audio device or packet. A CRT assert ends the exe with code 3, never a dialog.
