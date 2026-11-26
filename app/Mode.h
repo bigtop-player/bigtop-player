@@ -70,6 +70,14 @@ constexpr bool allowed(ShowMode mode, Action action) noexcept {
     return false;  // unreachable; a new Action must be added above (-Wswitch flags it)
 }
 
+/// @brief Whether Pause (button and P) is available, with the show's "Pause in Show mode" setting.
+/// @param mode The current mode.
+/// @param pauseInShow The show's Settings::pauseInShow.
+/// @return allowed(mode, Action::Pause), or true in Show mode when the show allows Pause there.
+constexpr bool pauseAllowed(ShowMode mode, bool pauseInShow) noexcept {
+    return allowed(mode, Action::Pause) || (mode == ShowMode::Show && pauseInShow);
+}
+
 /// @brief The colour of a mode's strip and of the GO button's border.
 /// @param mode The mode.
 /// @return Opaque ARGB: amber (Edit), blue (Rehearsal), green (Show). All are

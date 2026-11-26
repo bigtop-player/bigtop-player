@@ -130,6 +130,28 @@ void ShowSettingsPanel::rebuild() {
            [](const Show& s) { return s.settings.defaultFadeSeconds; },
            [](Show& s, double v) { s.settings.defaultFadeSeconds = v; });
 
+    // Pause in Show mode: off by default, so Show mode keeps only what is safe in a show.
+    auto& pauseInShow = adopt(content_, owned_, std::make_unique<juce::ToggleButton>("Pause in Show mode"));
+    pauseInShow.setComponentID("pauseInShow");
+    pauseInShow.setBounds(150, y, width - 150, kRow);
+    pauseInShow.setEnabled(editable);
+    const auto pullPause = [this, &pauseInShow](bool) {
+        if (session_.isOpen())
+            pauseInShow.setToggleState(session_.controller().show().settings.pauseInShow, juce::dontSendNotification);
+    };
+    pauseInShow.onClick = [this, &pauseInShow, pullPause] {
+        const bool on = pauseInShow.getToggleState();
+        session_.edit(Action::ShowSettings, [on](Show& s) {
+            if (s.settings.pauseInShow == on) return false;
+            s.settings.pauseInShow = on;
+            return true;
+        });
+        pullPause(true);  // a refused edit shows the stored value again
+    };
+    pulls_.push_back(pullPause);
+    pullPause(true);
+    y += kRow + kGap;
+
     // Art-Net target: used only with the "Default" adapter (design 9).
     label("Art-Net target", 0, 150);
     auto& target = adopt(content_, owned_, std::make_unique<juce::TextEditor>());

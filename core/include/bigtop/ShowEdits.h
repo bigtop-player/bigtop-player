@@ -22,6 +22,7 @@ namespace bigtop {
 
 inline constexpr double kEditLevelMinDb = -60.0;  ///< @brief Lowest level an editor field accepts, dB.
 inline constexpr double kEditLevelMaxDb = 12.0;   ///< @brief Highest level an editor field accepts, dB.
+inline constexpr double kEditMaxPositionSeconds = 24.0 * 3600.0;  ///< @brief Latest start or end point inside a file an editor field accepts, s.
 inline constexpr double kEditTrimMinDb = -24.0;   ///< @brief Lowest file trim an editor field accepts, dB.
 inline constexpr double kEditTrimMaxDb = 12.0;    ///< @brief Highest file trim an editor field accepts, dB.
 inline constexpr double kEditMaxSeconds = 600.0;  ///< @brief Longest time an editor field accepts, seconds.

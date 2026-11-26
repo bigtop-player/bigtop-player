@@ -60,10 +60,10 @@ private:
 
     ShowSession& session_;
     int index_ = -1;
-    juce::Label title_, fileLabel_, nameLabel_{{}, "Name"}, levelLabel_{{}, "Level"}, trimLabel_{{}, "File trim"}, hint_;
+    juce::Label title_, fileLabel_, nameLabel_{{}, "Name"}, levelLabel_{{}, "Level"}, trimLabel_{{}, "File trim"}, startLabel_{{}, "Start"}, endLabel_{{}, "End"}, hint_;
     juce::TextButton close_{"Close"}, clear_{"Clear pad"};
     juce::TextEditor name_;
-    NumberField level_, trim_;
+    NumberField level_, trim_, start_, end_;  // start/end: the pad's range in the file, Edit mode only
 };
 
 }  // namespace bigtop::app

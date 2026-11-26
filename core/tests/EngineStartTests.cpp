@@ -12,7 +12,8 @@ TEST_CASE("A started sound plays sample-exactly from its start point and then st
     Engine e(1000); RampSource src(300);
     auto c = startCmd(1, src); c.start.startFrame = 100; e.post(c);
     auto out = render(e, 400);
-    CHECK(out[0] == 100.0f); CHECK(out[199] == 299.0f); CHECK(out[200] == 0.0f);
+    // A start inside the file rises over the 10-frame declick; from then on it is sample-exact.
+    CHECK(out[0] < 100.0f); CHECK(out[10] == 110.0f); CHECK(out[199] == 299.0f); CHECK(out[200] == 0.0f);
     CHECK(e.snapshot().numVoices == 0);
 }
 TEST_CASE("Start delay holds the sound back and shows it as pending") {
@@ -33,8 +34,8 @@ TEST_CASE("Fade-in follows the fader shape") {
 TEST_CASE("A looped sound wraps from end point to start point without a gap") {
     Engine e(1000); RampSource src(1000);
     auto c = startCmd(1, src); c.start.startFrame = 10; c.start.endFrame = 20; c.start.loop = true; e.post(c);
-    auto out = render(e, 25);
-    CHECK(out[9] == 19.0f); CHECK(out[10] == 10.0f); CHECK(out[20] == 10.0f);
+    auto out = render(e, 35);  // the first 10 frames are the declick rise of a start inside the file
+    CHECK(out[19] == 19.0f); CHECK(out[20] == 10.0f); CHECK(out[29] == 19.0f); CHECK(out[30] == 10.0f);
 }
 TEST_CASE("Two sounds are summed") {
     Engine e(1000); ConstSource a(100, 0.25f), b(100, 0.5f);
@@ -74,9 +75,9 @@ TEST_CASE("A huge start gain is capped at kMaxProgrammedGain") {
 // An end point beyond the source is clamped to the source length.
 TEST_CASE("An end point past the source length is clamped") {
     Engine e(1000); RampSource src(100);
-    auto c = startCmd(1, src); c.start.startFrame = 90; c.start.endFrame = 1000; e.post(c);
-    auto out = render(e, 64);
-    CHECK(out[9] == 99.0f); CHECK(out[10] == 0.0f); CHECK(e.snapshot().numVoices == 0);
+    auto c = startCmd(1, src); c.start.startFrame = 80; c.start.endFrame = 1000; e.post(c);
+    auto out = render(e, 64);  // past the 10-frame declick rise, then the file's own end (no end ramp)
+    CHECK(out[19] == 99.0f); CHECK(out[20] == 0.0f); CHECK(e.snapshot().numVoices == 0);
 }
 // The snapshot is passed through raw atomic words; every field of the first
 // and last voice plus the trailing counters must survive, which catches a

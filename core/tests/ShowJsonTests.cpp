@@ -114,3 +114,20 @@ TEST_CASE("sourcePath survives a round trip; a file without it loads empty and w
     CHECK(back == show); CHECK(back.files[0].sourcePath == "sources/ab.mp3"); CHECK(back.files[1].sourcePath.empty());
     CHECK(toJson(show).find("sourcePath") == toJson(show).rfind("sourcePath"));  // written once, for file 1 only
 }
+// An older show has no pauseInShow: it opens with Pause hidden in Show mode, as before.
+TEST_CASE("pauseInShow round-trips and defaults to false") {
+    CHECK_FALSE(fromJson(R"({"formatVersion":1})").settings.pauseInShow);
+    Show on; on.settings.pauseInShow = true;
+    CHECK(fromJson(toJson(on)).settings.pauseInShow);
+    CHECK_THROWS_AS(fromJson(R"({"formatVersion":1,"settings":{"pauseInShow":"yes"}})"), ShowFormatError);
+}
+// An older pad without start/end plays the whole file, and saving it adds no "endSeconds".
+TEST_CASE("pad start/end round-trip, missing means the whole file") {
+    const Show old = fromJson(R"({"formatVersion":1,"pads":[{"name":"Bell","levelDb":0}]})");
+    CHECK(old.pads[0].startSeconds == 0.0);
+    CHECK_FALSE(old.pads[0].endSeconds.has_value());
+    CHECK_FALSE(nlohmann::json::parse(toJson(old))["pads"][0].contains("endSeconds"));
+    Show trimmed; trimmed.files = {{1, "audio/bell.wav", 0.0}};
+    trimmed.pads[0] = Pad{.name = "Bell", .file = 1, .levelDb = -3.0, .startSeconds = 1.5, .endSeconds = 4.0};
+    CHECK(fromJson(toJson(trimmed)) == trimmed);
+}

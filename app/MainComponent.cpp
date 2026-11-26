@@ -60,6 +60,7 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
     for (auto* b : {&goButton_, &fadeButton_, &addFadeButton_, &pauseButton_}) b->setWantsKeyboardFocus(false);
     addChildComponent(addFadeButton_);  // shown by resized() in Edit mode
     addChildComponent(pauseButton_);    // shown by resized() where the mode allows Pause
+    addChildComponent(goFrame_);        // before GO, so it sits behind it; resized() shows it with GO
     for (juce::Component* c : {static_cast<juce::Component*>(&runningView_), static_cast<juce::Component*>(&steps_),
                                static_cast<juce::Component*>(&goButton_), static_cast<juce::Component*>(&fadeButton_)})
         addChildComponent(c);
@@ -73,6 +74,22 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
     status_.onSettings = [this] { toggleSettings(); };
     status_.onShows = [this] { chooseShow(); };
     status_.onShowSettings = [this] { openShowSettings(); };
+    // A step dragged by its handle onto a pad gives the pad its sound.
+    steps_.onDragOver = [this](std::optional<juce::Point<int>> screen) {
+        const int pad = screen ? pads_.padAtScreen(*screen) : -1;
+        pads_.setDropHighlight(pad);
+        return pad >= 0;
+    };
+    steps_.onDropOutside = [this](StepId step, juce::Point<int> screen) {
+        const int pad = pads_.padAtScreen(screen);
+        if (pad < 0) return false;
+        session_.assignStepToPad(step, pad);
+        return true;
+    };
+    status_.onClipTapped = [this] {
+        session_.resetClip();
+        refreshStatus();
+    };
 
     if (const auto last = settings.lastShow()) {
         std::string error;
@@ -93,7 +110,7 @@ MainComponent::~MainComponent() {
 
 void MainComponent::pickMode(ShowMode mode) {
     flushState(true);
-    if (!session_.setMode(mode)) {  // refused ("Resume first"): the strip keeps the old mode
+    if (!session_.setMode(mode)) {  // refused (paused, see kShowRefusedPaused): the strip keeps the old mode
         refreshStatus();
         return;
     }
@@ -218,8 +235,8 @@ void MainComponent::fadeOut() {
 }
 
 void MainComponent::togglePause() {
-    // Show mode has no Pause: ignore silently (a stray P must not even flash a notice).
-    if (!session_.isOpen() || !allowed(session_.mode(), Action::Pause)) return;
+    // Show mode has no Pause unless the show allows it: ignore silently (a stray P must not even flash a notice).
+    if (!session_.isOpen() || !pauseAllowed(session_.mode(), session_.controller().show().settings.pauseInShow)) return;
     auto& controller = session_.controller();
     // The controller's own flag decides the direction, so a double tap cannot send two pauses.
     if (!(controller.paused() ? controller.resume() : controller.pause())) session_.flash("Engine busy, press again");
@@ -299,6 +316,7 @@ void MainComponent::timerCallback() {
         flushState(true);
     else
         flushState(false);
+    status_.setPeaks(session_.outputPeaks(), uiMs());  // the meter moves at the UI rate, show open or not
     if (session_.isOpen()) {
         const auto snap = session_.snapshot();
         running_.refresh(snap);
@@ -328,17 +346,9 @@ void MainComponent::timerCallback() {
     }
 }
 
-void MainComponent::paintOverChildren(juce::Graphics& g) {
-    if (!goButton_.isVisible()) return;
-    // The same colour as the strip, so the mode is visible right at the button that matters.
-    g.setColour(juce::Colour(modeColour(session_.mode())));
-    g.drawRoundedRectangle(goButton_.getBounds().toFloat().expanded(2.0f), 6.0f, 4.0f);
-}
-
 void MainComponent::refreshStatus() {
     if (session_.mode() != shownMode_) {
         shownMode_ = session_.mode();
-        repaint(goButton_.getBounds().expanded(8));
         resized();  // Add fade step appears and disappears with the mode
     }
     // The mode table decides what a panel may show: leaving Edit/Rehearsal closes the editor
@@ -377,13 +387,18 @@ void MainComponent::resized() {
     }
     auto buttons = r.removeFromBottom(kButtonHeight).reduced(8);
     fadeButton_.setBounds(buttons.removeFromRight(buttons.getWidth() / 3).withTrimmedLeft(8));
-    const bool showPause = session_.isOpen() && !choosing_ && allowed(session_.mode(), Action::Pause);
+    const bool showPause = session_.isOpen() && !choosing_ &&
+                           pauseAllowed(session_.mode(), session_.controller().show().settings.pauseInShow);
     pauseButton_.setVisible(showPause);
     if (showPause) pauseButton_.setBounds(buttons.removeFromRight(buttons.getWidth() / 4).withTrimmedLeft(8));
     const bool showAddFade = session_.isOpen() && !choosing_ && allowed(session_.mode(), Action::EditStructure);
     addFadeButton_.setVisible(showAddFade);
     if (showAddFade) addFadeButton_.setBounds(buttons.removeFromRight(juce::jmax(110, buttons.getWidth() / 4)).withTrimmedLeft(8));
     goButton_.setBounds(buttons);
+    // The same colour as the strip, so the mode is visible right at the button that matters.
+    goFrame_.setVisible(goButton_.isVisible());
+    goFrame_.setBounds(buttons.expanded(ModeFrame::kWidth));
+    goFrame_.setColour(juce::Colour(modeColour(session_.mode())));
     steps_.setBounds(r);
 }
 

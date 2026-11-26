@@ -15,7 +15,6 @@ namespace bigtop::app {
 namespace {
 
 constexpr int kTicksPerRetry = 8;            // 4 Hz tick -> device retry every 2 s
-constexpr juce::uint32 kClipHoldMs = 2000;   // CLIP stays lit this long after limiting
 constexpr juce::uint32 kStallMs = 1000;      // running but no engine frames this long = stalled
 
 bool typeAvailable(juce::AudioDeviceManager& devices, const juce::String& type) {
@@ -56,6 +55,8 @@ ShowSession::ShowSession(io::AppSettings& settings, juce::AudioDeviceManager& de
     if (offline != nullptr) {
         fakeAdapters_ = offline->adapters;
         fixedSavedTime_ = offline->savedTime;
+        fakeGainReductionDb_ = offline->gainReductionDb;
+        fakeOutputPeaks_ = offline->outputPeaks;
     }
     // The lambda captures the engine, not this: the sender thread must not touch the session.
     sender_ = std::make_unique<io::ArtNetSender>([engine = engine_.get()] { return engine->snapshot(); },
@@ -294,8 +295,9 @@ bool ShowSession::setMode(ShowMode mode) {
     if (!isOpen()) return false;
     // The engine's own word too: a pause the controller does not know about
     // (one left from another show) must not hide behind Show mode either.
-    if (mode == ShowMode::Show && (controller_->paused() || engine_->snapshot().paused)) {
-        flash("Resume first");
+    if (mode == ShowMode::Show && !controller_->show().settings.pauseInShow &&
+        (controller_->paused() || engine_->snapshot().paused)) {
+        flash(juce::String::fromUTF8(kShowRefusedPaused));
         return false;
     }
     mode_ = mode;
@@ -463,6 +465,8 @@ void ShowSession::padHashed(const juce::File& file, const std::string& hash, int
     Pad& pad = edited.pads[static_cast<size_t>(index)];
     pad.file = id;
     pad.name = file.getFileNameWithoutExtension().toStdString();
+    pad.startSeconds = 0.0;  // a new sound plays whole: the old range belonged to the old file
+    pad.endSeconds.reset();
     commit(std::move(edited));  // in show.json before converting, as for steps
     if (!needConvert)
         keepOnly(file, keepAs);
@@ -526,6 +530,29 @@ void ShowSession::deleteStep(int index) {
     commit(std::move(edited));
 }
 
+bool ShowSession::assignStepToPad(StepId step, int pad) {
+    if (!isOpen()) return false;
+    const auto& steps = controller_->show().steps;
+    const auto it = std::find_if(steps.begin(), steps.end(), [step](const Step& s) { return s.id == step; });
+    if (it == steps.end()) return false;
+    if (!it->sound) {
+        flash("A fade step has no sound to put on a pad");
+        return false;
+    }
+    const Sound sound = *it->sound;
+    const std::string name = it->name;
+    return edit(Action::AssignPad, [&](Show& show) {
+        if (pad < 0 || pad >= show.settings.padRows * show.settings.padCols) return false;
+        if (show.pads.size() <= static_cast<size_t>(pad)) show.pads.resize(static_cast<size_t>(pad) + 1);
+        Pad& p = show.pads[static_cast<size_t>(pad)];
+        p.file = sound.file;  // the same file entry: nothing is imported again
+        p.name = name;
+        p.startSeconds = sound.startSeconds;
+        p.endSeconds = sound.endSeconds;
+        return true;
+    });
+}
+
 void ShowSession::moveStep(int from, int to) {
     if (!allowed(Action::Reorder)) return;
     const auto& steps = controller_->show().steps;
@@ -558,14 +585,15 @@ juce::String ShowSession::importError(FileId file) const {
     return it != importErrors_.end() ? juce::String::fromUTF8(it->second.c_str()) : juce::String();
 }
 
+io::OutputPeaks ShowSession::outputPeaks() { return fakeOutputPeaks_ ? fakeOutputPeaks_() : output_->takePeaks(); }
+
 void ShowSession::tick() {
     if (provider_ != nullptr) provider_->collect(engine_->snapshot());
-    // Sampling at 4 Hz misses no over: the limiter's release is exponential
-    // (tau = 100 ms) and only snaps back to unity below 1e-6, so after any
-    // over gainReductionDb() stays > 0 for at least ~0.47 s, longer than a tick.
-    if (output_->gainReductionDb() > 0.0f) {
-        lastClipMs_ = uiMs();
-        clipSeen_ = true;
+    // The limiter holds its deepest reduction until read, so sampling at 4 Hz
+    // misses no over, even one the release has undone between two ticks.
+    const float reductionDb = fakeGainReductionDb_ ? fakeGainReductionDb_() : output_->takePeakReductionDb();
+    if (reductionDb > kClipThresholdDb) {
+        clipLatched_ = true;  // stays lit until resetClip(): an over seen once is not missed
     }
     if (++ticks_ % kTicksPerRetry == 0 && !settingsOpen_) output_->retryIfLost();
     // While not running the clock restarts, so a device coming back is not
@@ -586,7 +614,7 @@ ShowSession::Status ShowSession::status() const {
                   : stalled     ? juce::String("Audio: device stalled")
                   : hasDesired_ ? juce::String(juce::CharPointer_UTF8("Audio: device lost \xe2\x80\x94 retrying"))
                                 : juce::String("Audio: no device");
-    s.clip = clipSeen_ && uiMs() - lastClipMs_ < kClipHoldMs;
+    s.clip = clipLatched_;
     s.droppedStarts = engine_->snapshot().droppedStarts;
     s.dropouts = provider_ != nullptr ? provider_->dropouts() : 0;
     s.saveOk = saveOk_;

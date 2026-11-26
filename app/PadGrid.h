@@ -108,6 +108,13 @@ public:
     /// @param y Drop point, relative to this component.
     /// @note A drop on a gap or outside the grid does nothing. Refused with a notice outside Edit mode.
     void filesDropped(const juce::StringArray& files, int x, int y) override;
+    /// @brief The visible pad under a point (a step dragged from the list).
+    /// @param screenPos The point in screen coordinates.
+    /// @return The pad's index, or -1 over a gap, outside the grid or when the grid is hidden.
+    int padAtScreen(juce::Point<int> screenPos) const;
+    /// @brief Marks the pad a step drag would land on.
+    /// @param index Pad index, or -1 for none.
+    void setDropHighlight(int index);
 
 private:
     /// App test hook (app/tests/AppTestSupport.h): the painted cells and the Edit pads toggle.
@@ -116,6 +123,7 @@ private:
     class Cells;
     int padAtContent(int x, int y) const;  // x, y in the scrolled content
     int padAt(int x, int y) const;         // x, y in this component (a drop point)
+    int dropHighlight_ = -1;               // the pad a step drag is over, -1 = none
     void paintCells(juce::Graphics& g);
     void tapped(int index);
     void layoutCells();

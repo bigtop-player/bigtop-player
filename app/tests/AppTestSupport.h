@@ -56,8 +56,23 @@ struct AppTestAccess {
     static void setDetails(MainComponent& m, bool on) { m.setDetails(on); }
     /// @brief The Pause / Resume button. @param m The main component. @return Its child.
     static juce::TextButton& pauseButton(MainComponent& m) { return m.pauseButton_; }
+    /// @brief The Fade out button. @param m The main component. @return Its child.
+    static juce::TextButton& fadeButton(MainComponent& m) { return m.fadeButton_; }
+    /// @brief The "+ Fade" button (Edit mode). @param m The main component. @return Its child.
+    static juce::TextButton& addFadeButton(MainComponent& m) { return m.addFadeButton_; }
+    /// @brief The mode-coloured frame around GO. @param m The main component. @return Its child.
+    static ModeFrame& goFrame(MainComponent& m) { return m.goFrame_; }
     /// @brief The PAUSED strip over the running area. @param m The main component. @return Its child.
     static juce::Label& pausedBanner(MainComponent& m) { return m.pausedBanner_; }
+    /// @brief The status bar's output level meter.
+    /// @param m The main component. @return Its status bar's meter.
+    static LevelMeter& levelMeter(MainComponent& m) { return m.status_.meter_; }
+    /// @brief The status bar's CLIP light (a button: a tap resets it).
+    /// @param m The main component. @return Its status bar's CLIP button.
+    static juce::Button& clipButton(MainComponent& m) { return m.status_.clip_; }
+    /// @brief The status bar's notice label (shown in place of the show name).
+    /// @param m The main component. @return Its status bar's notice label.
+    static juce::Label& statusMessage(MainComponent& m) { return m.status_.message_; }
     /// @brief The show settings' scrolling area. @param p The panel. @return Its viewport.
     static juce::Viewport& viewport(ShowSettingsPanel& p) { return p.view_; }
     /// @brief How often the step list worded its Details lines. @param s The list. @return The count.
@@ -128,6 +143,12 @@ struct AppTestAccess {
     static NumberField& padLevel(PadEditor& e) { return e.level_; }
     /// @brief The pad editor's file trim field. @param e The editor. @return Its child.
     static NumberField& padTrim(PadEditor& e) { return e.trim_; }
+    /// @brief The pad editor's start field. @param e The pad editor. @return Its start field.
+    static NumberField& padStart(PadEditor& e) { return e.start_; }
+    /// @brief The pad a step drag is over (-1 = none). @param g The pad grid. @return Its highlighted pad.
+    static int padDropHighlight(const PadGrid& g) { return g.dropHighlight_; }
+    /// @brief The pad editor's end field. @param e The pad editor. @return Its end field.
+    static NumberField& padEnd(PadEditor& e) { return e.end_; }
 
     /// @brief The running row of a step (rows carry their step id as component ID).
     /// @param m The main component. @param id The step id.
@@ -211,11 +232,22 @@ public:
     ///       is allowed here as in waitHeads(). Fails the test (REQUIRE) when the time runs out.
     void waitUntil(const std::function<bool()>& done);
 
+    /// @brief Sets the output limiter's gain reduction the session reads (the engine is driven
+    ///        directly here, so the real limiter never sees audio).
+    /// @param db Gain reduction in dB, 0 = not limiting.
+    void setGainReductionDb(float db) noexcept { gainReductionDb_ = db; }
+
+    /// @brief Sets the output peaks the session reads for the level meter (see setGainReductionDb()).
+    /// @param peaks Linear peaks per channel, returned by every read until set again.
+    void setOutputPeaks(io::OutputPeaks peaks) noexcept { outputPeaks_ = peaks; }
+
 private:
     TempDir temp_;
     std::unique_ptr<io::AppSettings> settings_;
     juce::AudioDeviceManager devices_;
     ShowSession::Offline offline_;
+    float gainReductionDb_ = 0.0f;
+    io::OutputPeaks outputPeaks_{};
     std::unique_ptr<MainComponent> main_;
 };
 

@@ -453,4 +453,30 @@ TEST_CASE("the NEXT row is reworded only when the running set changes") {
     REQUIRE(AppTestAccess::describeCount(list) > picked);
 }
 
+TEST_CASE("rows with a running sound are tinted, NEXT keeps its look") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    auto& main = app.main();
+    auto& list = AppTestAccess::steps(main);
+    AppTestAccess::go(main);  // row 0 plays, row 1 is NEXT, row 2 is neither
+    app.audio(5);
+    app.tick();
+    auto& rows = AppTestAccess::rows(list);
+    const auto pixel = [&](int x, int row) {
+        const auto image = rows.createComponentSnapshot(rows.getLocalBounds(), true, 1.0f);
+        return image.getPixelAt(x, AppTestAccess::rowTop(list, row) + 2);
+    };
+    const juce::Colour tint(kPlayingTint);
+    CHECK(pixel(2, 0) == tint);
+    CHECK(pixel(rows.getWidth() / 2, 0) == tint);
+    CHECK(pixel(2, 1) != tint);  // NEXT, not playing
+    CHECK(pixel(2, 2) != tint);
+    // Playing and NEXT: the NEXT colour, with the tint as a bar at the left edge.
+    app.session().controller().selectNext(0);
+    app.tick();
+    CHECK(pixel(2, 0) == tint);
+    CHECK(pixel(rows.getWidth() / 2, 0) != tint);
+}
+
 }  // namespace bigtop::app

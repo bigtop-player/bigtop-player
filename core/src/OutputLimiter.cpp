@@ -27,10 +27,12 @@ void OutputLimiter::reset() noexcept {
     gain_ = 1.0;
     step_ = 0.0;
     reductionDb_.store(0.0f, std::memory_order_relaxed);
+    peakReductionDb_.store(0.0f, std::memory_order_relaxed);
 }
 
 void OutputLimiter::process(float* left, float* right, int frames) noexcept {
     const int cap = delay_ + 1;  // window: the frame leaving now plus the delay_ still inside
+    double lowestGain = gain_;   // the block's deepest reduction, for takePeakReductionDb()
     for (int i = 0; i < frames; ++i) {
         float l = std::isfinite(left[i]) ? left[i] : 0.0f;
         float r = std::isfinite(right[i]) ? right[i] : 0.0f;
@@ -71,6 +73,7 @@ void OutputLimiter::process(float* left, float* right, int frames) noexcept {
             delayPos_ = (delayPos_ + 1) % delay_;
         }
         // Final guard: rounding at the end of a ramp must never pass the ceiling.
+        lowestGain = std::min(lowestGain, gain_);
         const float g = static_cast<float>(gain_);
         left[i] = std::clamp(l * g, -ceiling_, ceiling_);
         right[i] = std::clamp(r * g, -ceiling_, ceiling_);
@@ -78,6 +81,9 @@ void OutputLimiter::process(float* left, float* right, int frames) noexcept {
     }
     // max with 0: at unity -gainToDb gives -0.0, which should read as plain 0.
     reductionDb_.store(std::max(0.0f, static_cast<float>(-gainToDb(gain_))), std::memory_order_relaxed);
+    const float blockPeakDb = std::max(0.0f, static_cast<float>(-gainToDb(lowestGain)));
+    if (blockPeakDb > peakReductionDb_.load(std::memory_order_relaxed))
+        peakReductionDb_.store(blockPeakDb, std::memory_order_relaxed);
 }
 
 }  // namespace bigtop

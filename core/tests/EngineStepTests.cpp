@@ -185,3 +185,45 @@ TEST_CASE("a pending voice is in the snapshot with fadingOut false") {
     REQUIRE(snap.numVoices == 1);
     CHECK(snap.voices[0].pending); CHECK_FALSE(snap.voices[0].fadingOut);
 }
+
+// GO on the step that is playing works like any other GO: the old copy fades
+// out over the time the controller worked out, while the new one starts.
+TEST_CASE("A restart with restartFrames fades the old copy over that time") {
+    Engine e(1000); ConstSource a(100000); e.post(startCmd(1, a)); render(e, 1000);
+    auto c = startCmd(1, a); c.restartFrames = 1000; e.post(c);
+    auto out = render(e, 1100);
+    CHECK(out[500] == Approx(1.0f + 0.70711f).margin(1e-2));  // new at full, old halfway down its equal-power fade
+    CHECK(out[1050] == Approx(1.0f));                          // old gone after 1 s
+    CHECK(e.snapshot().numVoices == 1);
+}
+TEST_CASE("A restart leaves an old copy that already fades out alone") {
+    Engine e(1000); ConstSource a(100000); e.post(startCmd(1, a)); render(e, 64);
+    StepCommand f; f.numChanges = 1; f.changes[0] = {1, ChangeKind::FadeOut, 0, 4000}; e.post(f); render(e, 100);
+    auto c = startCmd(1, a); c.restartFrames = 200; e.post(c);
+    auto out = render(e, 1000);
+    CHECK(out[999] > 1.1f);  // the old copy still follows its own 4 s fade, not the 0.2 s restart
+}
+TEST_CASE("A restart during the start delay cancels the pending voice") {
+    Engine e(1000); ConstSource a(100000);
+    auto s = startCmd(1, a); s.start.delayFrames = 2000; e.post(s); render(e, 500);
+    auto c = startCmd(1, a); c.restartFrames = 1000; e.post(c); render(e, 10);
+    CHECK(e.snapshot().numVoices == 1);
+}
+// The old copy of a restarted step has no key, no row and no fader: Esc is the
+// only way to stop it, so fade out all must reach it (it ends over the declick).
+TEST_CASE("Fade out all silences the old copy of a restarted step") {
+    Engine e(1000); ConstSource a(100000), silent(100000, 0.0f); e.post(startCmd(1, a)); render(e, 1000);
+    auto c = startCmd(1, silent); c.restartFrames = 10000; e.post(c); render(e, 100);
+    e.post(FadeOutAllCommand{2000});
+    auto out = render(e, 100);
+    CHECK(out[50] == 0.0f);
+}
+TEST_CASE("Fade out all reaches the old copy when it is the only sound left") {
+    Engine e(1000); ConstSource a(100000); e.post(startCmd(1, a)); render(e, 1000);
+    auto c = startCmd(1, a); c.restartFrames = 10000; e.post(c); render(e, 100);
+    StepCommand stop; stop.numChanges = 1; stop.changes[0] = {1, ChangeKind::FadeOut, 0, 0}; e.post(stop); render(e, 50);
+    e.post(FadeOutAllCommand{2000});
+    auto out = render(e, 100);
+    CHECK(out[50] == 0.0f);
+    CHECK(e.snapshot().numVoices == 0);
+}

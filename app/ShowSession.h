@@ -49,7 +49,7 @@ public:
     struct Status {
         bool audioOk = false;     ///< @brief The chosen output device is open and playing.
         juce::String audioText;   ///< @brief "Audio OK", "Audio: device stalled" (open but no audio for >= 1 s), "Audio: device lost - retrying" (an em dash on screen) or "Audio: no device".
-        bool clip = false;        ///< @brief The output limiter reduced gain within the last 2 s.
+        bool clip = false;        ///< @brief The output limiter reduced gain by more than kClipThresholdDb since the last resetClip().
         uint32_t dropouts = 0;    ///< @brief Late disk reads of the open show (see StreamingSourceProvider::dropouts()).
         bool saveOk = true;       ///< @brief False after a failed save until the next one succeeds.
         juce::String saveText;    ///< @brief "Saved hh:mm:ss", the save error, or empty before the first save.
@@ -58,6 +58,14 @@ public:
         uint32_t droppedStarts = 0;  ///< @brief Starts and seeks refused since launch because all voices were busy (Snapshot::droppedStarts); the bar says "a start or seek was dropped".
     };
 
+    /// @brief CLIP lights when the output limiter turns the level down by more than
+    ///        this, in dB: where limiting starts to be heard. A master peaking at
+    ///        0 dBFS meets the -0.3 dBFS ceiling with 0.3 dB and stays dark.
+    static constexpr float kClipThresholdDb = 1.0f;
+
+    /// @brief The notice when Show mode is refused because the sounds are paused (UTF-8).
+    static constexpr const char* kShowRefusedPaused = "Resume or press Esc first \xe2\x80\x93 Show mode has no Pause";
+
     /// @brief How long a flash() message stays in the status bar, in ms.
     static constexpr juce::uint32 kFlashMs = 3000;
 
@@ -65,6 +73,8 @@ public:
     struct Offline {
         std::vector<io::NetAdapter> adapters;  ///< @brief The adapter list shown instead of the real one (invented entries).
         juce::String savedTime;                ///< @brief Non-empty: the status bar says "Saved <this>" instead of the clock, so re-rendered images do not change.
+        std::function<io::OutputPeaks()> outputPeaks;  ///< @brief Set: read instead of the output's peaks (as gainReductionDb).
+        std::function<float()> gainReductionDb;  ///< @brief Set: read instead of the output limiter's gain reduction (the tests drive the engine directly, so the limiter never sees audio).
     };
 
     /// @brief Opens the audio device and starts the disk-read thread; no show yet.
@@ -201,7 +211,7 @@ public:
     /// @brief Switches the mode and saves state.json.
     /// @param mode The new mode. Ignored (false) while no show is open.
     /// @return False when refused: entering Show while the show is paused
-    ///         (by the controller's record or the engine snapshot) flashes "Resume first" and changes nothing, so Show mode can
+    ///         (by the controller's record or the engine snapshot) flashes kShowRefusedPaused and changes nothing, so Show mode can
     ///         never be stuck paused with its Resume button hidden.
     /// @note Dropped files that were hashed while drops were not allowed are
     ///       added (in drop order) as soon as the new mode allows drops.
@@ -256,6 +266,13 @@ public:
     /// @note Ignored with a notice outside Edit mode. Message thread.
     void moveStep(int from, int to);
 
+    /// @brief Gives a pad a step's sound (a step dragged onto the pad).
+    /// @param step The step whose file, name, start and end the pad takes; the pad keeps its level.
+    /// @param pad The pad's index.
+    /// @return True if the pad changed. Refused with a notice outside Edit mode (Action::AssignPad)
+    ///         and for a step without a sound (a fade step).
+    bool assignStepToPad(StepId step, int pad);
+
     /// @brief Inserts a fade step (a step without a sound) right after NEXT.
     /// @return The new step's id; nullopt when the mode forbids structure edits
     ///         (a notice is flashed), no show is open, or step ids ran out.
@@ -284,6 +301,14 @@ public:
     /// @note Read on the waveform thread once per file after a show opens and after a file's
     ///       import finishes; handed over here on the message thread. Another show drops them all.
     std::shared_ptr<const io::Peaks> peaks(FileId file) const;
+
+    /// @brief The output peaks since the last call, for the level meter.
+    /// @return Per channel, the highest sample after the limiter (linear).
+    io::OutputPeaks outputPeaks();
+
+    /// @brief Turns the CLIP light off (a tap on it). If the limiter is still
+    ///        working, the next tick() lights it again.
+    void resetClip() noexcept { clipLatched_ = false; }
 
     /// @brief The 4 Hz housekeeping: frees unused sources, samples the CLIP
     ///        light, watches the engine's frame count for a stalled device
@@ -371,8 +396,9 @@ private:
     // that runs but delivers no callbacks shows as stalled.
     int64_t lastFrames_ = 0;
     juce::uint32 lastAdvanceMs_ = uiMs();
-    juce::uint32 lastClipMs_ = 0;
-    bool clipSeen_ = false;
+    bool clipLatched_ = false;  // CLIP is lit: set by tick(), cleared by resetClip()
+    std::function<float()> fakeGainReductionDb_;  // Offline only, see Offline::gainReductionDb
+    std::function<io::OutputPeaks()> fakeOutputPeaks_;  // Offline only, see Offline::outputPeaks
     bool saveOk_ = true;
     juce::String saveText_;
     juce::String flashText_;

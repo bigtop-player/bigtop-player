@@ -18,12 +18,13 @@ void setLabel(juce::Label& l, const juce::String& text, juce::Colour colour) {
 }  // namespace
 
 StatusBar::StatusBar() {
-    for (auto* l : {&audio_, &clip_, &dropouts_, &save_, &showName_, &message_}) {
+    for (auto* l : {&audio_, &dropouts_, &save_, &showName_, &message_}) {
         l->setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(l);
     }
-    clip_.setText("CLIP", juce::dontSendNotification);
-    clip_.setJustificationType(juce::Justification::centred);
+    clip_.setWantsKeyboardFocus(false);
+    clip_.onClick = [this] { if (onClipTapped) onClipTapped(); };
+    addAndMakeVisible(clip_);
     settings_.onClick = [this] { if (onSettings) onSettings(); };
     shows_.onClick = [this] { if (onShows) onShows(); };
     showSettings_.onClick = [this] { if (onShowSettings) onShowSettings(); };
@@ -34,6 +35,8 @@ StatusBar::StatusBar() {
     }
     artNet_.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(artNet_);
+    meter_.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(meter_);
 }
 
 void StatusBar::update(const ShowSession::Status& s, bool showOpen, ShowMode mode, const io::ArtNetStatus& artNet) {
@@ -46,8 +49,8 @@ void StatusBar::update(const ShowSession::Status& s, bool showOpen, ShowMode mod
              artNet.state == State::Error ? kBad : artNet.state == State::Sending ? kOk : kDim);
     artNet_.setTooltip(artNet.text);
     // CLIP is always there, dim when quiet, so a lit one is noticed.
-    clip_.setColour(juce::Label::textColourId, s.clip ? juce::Colours::white : kDim);
-    clip_.setColour(juce::Label::backgroundColourId, s.clip ? kBad : juce::Colours::transparentBlack);
+    clip_.setColour(juce::TextButton::textColourOffId, s.clip ? juce::Colours::white : kDim);
+    clip_.setColour(juce::TextButton::buttonColourId, s.clip ? kBad : juce::Colours::transparentBlack);
     // Both are red and never covered by a notice; they share one label.
     juce::StringArray problems;
     if (s.dropouts > 0) problems.add("dropouts: " + juce::String(s.dropouts));
@@ -62,12 +65,12 @@ void StatusBar::update(const ShowSession::Status& s, bool showOpen, ShowMode mod
     saveError_ = !s.saveOk;
     layoutMiddle();
     // Settings and "Shows..." are Edit-mode actions; with no show open there is
-    // nothing to protect and the start panel needs the device settings.
-    settings_.setEnabled(!showOpen || allowed(mode, Action::AudioSettings));
-    showSettings_.setVisible(showOpen);
-    showSettings_.setEnabled(allowed(mode, Action::ShowSettings));
-    shows_.setVisible(showOpen);  // with no show the start panel already offers New / Open
-    shows_.setEnabled(allowed(mode, Action::SwitchShow));
+    // nothing to protect and the start panel needs the device settings. A mode
+    // that refuses one hides it (as Pause and Keep are hidden), so the show
+    // screen has nothing to tap that does nothing; resized() keeps the gap.
+    settings_.setVisible(!showOpen || allowed(mode, Action::AudioSettings));
+    showSettings_.setVisible(showOpen && allowed(mode, Action::ShowSettings));
+    shows_.setVisible(showOpen && allowed(mode, Action::SwitchShow));  // with no show the start panel offers New / Open
 }
 
 void StatusBar::resized() {
@@ -76,7 +79,8 @@ void StatusBar::resized() {
     shows_.setBounds(r.removeFromRight(110).reduced(2));
     showSettings_.setBounds(r.removeFromRight(130).reduced(2));
     audio_.setBounds(r.removeFromLeft(260));
-    clip_.setBounds(r.removeFromLeft(64).reduced(4));
+    clip_.setBounds(r.removeFromLeft(64).reduced(4, 2));  // 48 px tall: a touch target
+    meter_.setBounds(r.removeFromLeft(260).reduced(4, 0));  // wide enough for segments and a readable dB scale
     artNet_.setBounds(r.removeFromLeft(kArtNetWidth));
     middle_ = r;
     layoutMiddle();

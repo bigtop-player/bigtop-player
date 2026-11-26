@@ -178,3 +178,32 @@ TEST_CASE("Esc twice does not click") {
     CHECK(second.back() == 0.0f);
     CHECK(maxStep(second) <= allowedStep(level, 0.0f, kDeclickSeconds, kRate));
 }
+
+// GO on the playing step: the old copy fades out over 1 s instead of being cut.
+// The new copy plays silence here, so only the old copy's fade is measured (a
+// new copy without fade-in cuts in by design, as any step with fade-in 0 does).
+TEST_CASE("a restart fades the old copy out without a click") {
+    Engine e(kRate); ConstSource a(kLength, kValue), silent(kLength, 0.0f); startPlaying(e, a);
+    auto c = startCmd(1, silent); c.restartFrames = static_cast<int64_t>(kRate);
+    const auto out = around(e, c, static_cast<int>(kRate) + 64);
+    CHECK(out.back() == 0.0f);
+    CHECK(maxStep(out) <= allowedStep(1.0f, 0.0f, 1.0, kRate));
+}
+
+// A start point inside the music with no fade-in, and an end point before the
+// file's end, must not cut in or out: both get the declick (pads and steps alike).
+TEST_CASE("a trimmed start without fade-in declicks in") {
+    Engine e(kRate); ConstSource a(kLength, kValue);
+    auto c = startCmd(1, a); c.start.startFrame = static_cast<int64_t>(kRate); c.start.endFrame = 2 * static_cast<int64_t>(kRate);
+    const auto out = around(e, c, 2 * kDeclickFrames);
+    CHECK(maxStep(out) <= allowedStep(1.0f, 0.0f, kDeclickSeconds, kRate));
+}
+TEST_CASE("a trimmed end declicks out") {
+    Engine e(kRate); ConstSource a(kLength, kValue);
+    auto c = startCmd(1, a); c.start.endFrame = static_cast<int64_t>(kRate) / 2;  // 0.5 s into a longer file
+    e.post(c);
+    const auto out = render(e, static_cast<int>(kRate) / 2 + 64);
+    CHECK(out.back() == 0.0f);
+    std::vector<float> tail(out.begin() + 64, out.end());  // past the start (a file start at 0 cuts in by design)
+    CHECK(maxStep(tail) <= allowedStep(1.0f, 0.0f, kDeclickSeconds, kRate));
+}

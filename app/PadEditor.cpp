@@ -17,7 +17,9 @@ juce::String text(const std::string& utf8) { return juce::String::fromUTF8(utf8.
 PadEditor::PadEditor(ShowSession& session)
     : session_(session),
       level_(0.5, kEditLevelMinDb, kEditLevelMaxDb, NumberField::Format::Db),
-      trim_(0.5, kEditTrimMinDb, kEditTrimMaxDb, NumberField::Format::Db) {
+      trim_(0.5, kEditTrimMinDb, kEditTrimMaxDb, NumberField::Format::Db),
+      start_(0.5, 0.0, kEditMaxPositionSeconds, NumberField::Format::MinSec),
+      end_(0.5, 0.0, kEditMaxPositionSeconds, NumberField::Format::MinSec) {
     title_.setFont(juce::FontOptions(20.0f, juce::Font::bold));
     title_.setMinimumHorizontalScale(0.6f);
     hint_.setColour(juce::Label::textColourId, juce::Colours::grey);
@@ -80,7 +82,47 @@ PadEditor::PadEditor(ShowSession& session)
         refresh();
     };
 
-    for (juce::Component* c : {static_cast<juce::Component*>(&title_), static_cast<juce::Component*>(&fileLabel_),
+    // The pad's range, like a step's start and end: structure, so Edit mode only. A change
+    // is heard from the next tap; a pad that plays keeps its range.
+    start_.onCommit = [this](double v) {
+        const char* refused = nullptr;
+        edit(Action::EditStructure, [&](Show&, Pad& p) {
+            if (p.endSeconds && v >= *p.endSeconds) {
+                refused = "Start must be before End";
+                return false;
+            }
+            p.startSeconds = v;
+            return true;
+        });
+        if (refused != nullptr) session_.flash(refused);
+        refresh();
+    };
+    end_.setAllowEmpty(true);  // empty = play to the end of the file
+    end_.onCommit = [this](double v) {
+        const char* refused = nullptr;
+        edit(Action::EditStructure, [&](Show&, Pad& p) {
+            if (v <= p.startSeconds) {
+                refused = "End must be after Start";
+                return false;
+            }
+            p.endSeconds = v;
+            return true;
+        });
+        if (refused != nullptr) session_.flash(refused);
+        refresh();
+    };
+    end_.onClear = [this] {
+        edit(Action::EditStructure, [](Show&, Pad& p) {
+            if (!p.endSeconds) return false;
+            p.endSeconds.reset();
+            return true;
+        });
+        refresh();
+    };
+
+    for (juce::Component* c : {static_cast<juce::Component*>(&startLabel_), static_cast<juce::Component*>(&endLabel_),
+                               static_cast<juce::Component*>(&start_), static_cast<juce::Component*>(&end_),
+                               static_cast<juce::Component*>(&title_), static_cast<juce::Component*>(&fileLabel_),
                                static_cast<juce::Component*>(&nameLabel_), static_cast<juce::Component*>(&levelLabel_),
                                static_cast<juce::Component*>(&trimLabel_), static_cast<juce::Component*>(&hint_),
                                static_cast<juce::Component*>(&close_), static_cast<juce::Component*>(&clear_),
@@ -161,6 +203,12 @@ void PadEditor::resized() {
     line = row();
     trimLabel_.setBounds(line.removeFromLeft(kLabel));
     trim_.setBounds(line.removeFromLeft(220));
+    line = row();
+    startLabel_.setBounds(line.removeFromLeft(kLabel));
+    start_.setBounds(line.removeFromLeft(220));
+    line = row();
+    endLabel_.setBounds(line.removeFromLeft(kLabel));
+    end_.setBounds(line.removeFromLeft(220));
     hint_.setBounds(row());
     clear_.setBounds(row().removeFromRight(160));
 }
@@ -197,6 +245,14 @@ void PadEditor::refresh() {
     if (!name_.hasKeyboardFocus(false)) name_.setText(text(p->name), false);
     if (!level_.isEditing()) level_.setValue(p->levelDb);
     if (!trim_.isEditing()) trim_.setValue(trimDb);
+    const bool range = allowed(mode, Action::EditStructure) && p->file.has_value();
+    start_.setEditable(range);
+    end_.setEditable(range);
+    if (!start_.isEditing()) start_.setValue(p->startSeconds);
+    if (!end_.isEditing()) {
+        if (p->endSeconds) end_.setValue(*p->endSeconds);
+        else end_.setEmpty();
+    }
 }
 
 }  // namespace bigtop::app

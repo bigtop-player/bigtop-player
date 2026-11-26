@@ -235,6 +235,7 @@ Show parse(const json& root) {
         Settings& s = show.settings;
         s.defaultFadeSeconds = getNum(*st, "defaultFadeSeconds", s.defaultFadeSeconds, "settings");
         s.goGuardSeconds = getNum(*st, "goGuardSeconds", s.goGuardSeconds, "settings");
+        s.pauseInShow = getBool(*st, "pauseInShow", "settings");  // missing: false, as before the setting existed
         s.timecodeFps = getInt(*st, "timecodeFps", s.timecodeFps, "settings");
         // Later code divides by the frame rate, so 0 or nonsense must not load.
         if (s.timecodeFps != 24 && s.timecodeFps != 25 && s.timecodeFps != 30)
@@ -298,6 +299,8 @@ Show parse(const json& root) {
         p.name = getStr(pads[i], "name", w);
         if (find(pads[i], "file")) p.file = getId(pads[i], "file", w);
         p.levelDb = getNum(pads[i], "levelDb", p.levelDb, w);
+        p.startSeconds = getNum(pads[i], "startSeconds", p.startSeconds, w);  // missing: the whole file, as before
+        p.endSeconds = getOptNum(pads[i], "endSeconds", w);
     }
     return show;
 }
@@ -317,13 +320,15 @@ std::string toJson(const Show& show) {
     }
     for (const Step& s : show.steps) steps.push_back(toJsonValue(s));
     for (const Pad& p : show.pads) {
-        json j{{"name", p.name}, {"levelDb", p.levelDb}};
+        json j{{"name", p.name}, {"levelDb", p.levelDb}, {"startSeconds", p.startSeconds}};
         if (p.file) j["file"] = *p.file;
+        if (p.endSeconds) j["endSeconds"] = *p.endSeconds;
         pads.push_back(j);
     }
     const Settings& s = show.settings;
     json root{{"formatVersion", show.formatVersion},
               {"settings", {{"defaultFadeSeconds", s.defaultFadeSeconds}, {"goGuardSeconds", s.goGuardSeconds},
+                            {"pauseInShow", s.pauseInShow},
                             {"timecodeFps", s.timecodeFps}, {"loudnessTargetLufs", s.loudnessTargetLufs},
                             {"artnetTarget", s.artnetTarget}, {"ontimeHost", s.ontimeHost},
                             {"ontimePort", s.ontimePort},

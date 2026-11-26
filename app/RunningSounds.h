@@ -117,7 +117,8 @@ constexpr RowParts rowParts(int width, int buttons) noexcept {
     constexpr int kMinName = 60, kMinTime = 64, kPad = 12;
     const int inner = width - kPad - buttons * kRowButtonWidth;
     const bool compact = width < 560;
-    int nameW = compact ? 90 : 130, timeW = compact ? 70 : 84;
+    // 200 px holds an ordinary file name ("01-01 - part i - altar") on one line; longer ones wrap to two.
+    int nameW = compact ? 90 : 200, timeW = compact ? 70 : 84;
     int excess = nameW + timeW + kRowFaderWidth + kRowBarFloor - inner;
     if (excess > 0) {
         const int fromName = excess < nameW - kMinName ? excess : nameW - kMinName;
@@ -139,7 +140,7 @@ static_assert(runningAreaHeight(0, 56) == 32 && runningAreaHeight(1, 56) == 56 &
 /// @brief Rows for the step voices of each snapshot; the faders send live trim.
 /// @note Message thread. Sized by refresh() to its rows (put it in a Viewport).
 ///       No child takes keyboard focus. Each row's component ID is its step id, and its
-///       position bar, fader and Fade / Keep / Edit buttons have the IDs "bar", "fader", "fade",
+///       name, position bar, fader and Fade / Keep / Edit buttons have the IDs "name", "bar", "fader", "fade",
 ///       "keep" and "edit" (the app tests find them with findChildWithID()).
 class RunningSounds : public juce::Component {
 public:

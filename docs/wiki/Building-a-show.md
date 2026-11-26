@@ -23,7 +23,7 @@ A 0 s time reads "immediately". The laptop remembers the choice; it is not saved
 
 ## The step editor
 
-Press **Edit** on a row. The panel on the right has the step's name and note, level, fade-in, start delay, loop, start and end points (m:ss.d), the timecode start and the file trim.
+Press **Edit** on a row. The panel on the right has the step's name and note, level, fade-in, start delay, loop, start and end points (m:ss.d), the timecode start and the file trim. A start or end point inside the music gets a 10 ms declick, so it never clicks.
 
 ![The step editor](../images/step-editor.png)
 
@@ -39,6 +39,6 @@ Sounds the step does not mention follow the step's **everything else** rule: fad
 
 ## Show settings and pads
 
-**Show settings** (Edit mode) holds the default fade time, the Art-Net target and adapter, the timecode frame rate and the pad grid size (rows by columns, up to 24 pads). In Edit mode, drop a file on a pad to assign it; turn on "Edit pads" to open a pad's editor (name, level, trim) instead of firing it. The editor also works while the pad plays: a new name changes only the label, a new level or trim moves the running sound there over 10 ms (no click), and Clear pad fades the sound out exactly as a second tap would, then the pad is empty.
+**Show settings** (Edit mode) holds the default fade time, "Pause in Show mode" (off by default: Show mode then has no Pause), the Art-Net target and adapter, the timecode frame rate and the pad grid size (rows by columns, up to 24 pads). In Edit mode, drop a file on a pad to assign it, or drag a step by its grab handle onto a pad: the pad takes the step's sound, name, start and end (its own level stays), with no new import; turn on "Edit pads" to open a pad's editor (name, level, trim, and start and end points) instead of firing it. Start and end work like a step's: the pad plays only that part of the file (an empty End plays to the file's end); they are set in Edit mode and apply from the next tap. Dropping a new file on a pad clears them: a new sound plays whole. The editor also works while the pad plays: a new name changes only the label, a new level or trim moves the running sound there over 10 ms (no click), and Clear pad fades the sound out exactly as a second tap would, then the pad is empty.
 
 ![Show settings](../images/show-settings.png)

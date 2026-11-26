@@ -88,6 +88,18 @@ int PadGrid::padAt(int x, int y) const {
     return padAtContent(x - view_.getX() + pos.x, y - view_.getY() + pos.y);
 }
 
+int PadGrid::padAtScreen(juce::Point<int> screenPos) const {
+    if (!isVisible()) return -1;  // the editor panels replace the grid
+    const auto p = getLocalPoint(nullptr, screenPos);
+    return getLocalBounds().contains(p) ? padAt(p.x, p.y) : -1;
+}
+
+void PadGrid::setDropHighlight(int index) {
+    if (index == dropHighlight_) return;
+    dropHighlight_ = index;
+    cells_->repaint();
+}
+
 void PadGrid::refresh(const Snapshot& snap) {
     if (!session_.isOpen()) return;
     snap_ = snap;
@@ -157,6 +169,10 @@ void PadGrid::paintCells(juce::Graphics& g) {
         if (editToggle_.getToggleState()) {
             g.setColour(kEditRing);
             g.drawRoundedRectangle(cell.toFloat().reduced(1.0f), 6.0f, 2.0f);
+        }
+        if (i == dropHighlight_) {  // a step dragged from the list would land here
+            g.setColour(juce::Colours::white);
+            g.drawRoundedRectangle(cell.toFloat().reduced(2.0f), 6.0f, 4.0f);
         }
 
         auto inner = cell.reduced(6, 4);

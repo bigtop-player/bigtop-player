@@ -5,14 +5,16 @@ Bigtop Player is a cue-based music player for live shows: a show is an ordered l
 ## Features
 
 - Drop audio files (WAV, MP3, FLAC) on the list: each becomes a step, converted in the background.
+- Steps that are playing are tinted green in the list, so you see at a glance where the show is.
 - One GO runs one step; the old sound fades out by itself, or keeps playing, as you choose.
 - Fade steps and per-sound changes: keep, go to a level, fade out, each with its own time.
 - A Details checkbox in the top bar shows under each step what it does: its file, level, fades, range, loop, timecode and the changes it makes. The NEXT row's "everything else" line tells what will really be faded: the sounds playing now, not a guess from the list. A step that fades everything else always keeps room for that line (blank when nothing is left to fade), so no row moves when it comes or goes.
 - Screen readers (Windows Narrator) read the step list: number, name, NEXT, a missing file / import failed and the Details lines; activating a row makes it NEXT.
-- Three modes (Edit, Rehearsal, Show) so nothing can be changed by accident during a show.
-- Live faders, per-sound Fade, Keep, seeking, and Pause for everything at once.
+- Three modes (Edit, Rehearsal, Show) so nothing can be changed by accident during a show; what a mode does not allow is hidden, not just greyed out.
+- Live faders, per-sound Fade, Keep, seeking, and Pause for everything at once (in Show mode too, if the show allows it).
 - Each running sound shows its waveform behind the position bar (start to end, or the loop), played part in blue, so you see what is coming.
-- A pad grid for effects that play whatever the steps do.
+- A CLIP light that comes on only when the output limiter is heard (more than 1 dB), not for every loud master, and stays lit until you tap it; a stereo level meter next to it.
+- A pad grid for effects that play whatever the steps do, each with its own level and start and end points; drag a step onto a pad to reuse its sound.
 - Art-Net timecode for the lighting desk, with a choice of network adapter.
 - Export a show to one zip and import it on another laptop.
 
@@ -57,7 +59,8 @@ A show is an ordered list of **steps**. One press of GO runs one step, then the 
 
 A step can do either or both of two things:
 
-- **Start a sound**: a file with a level, a fade-in time, optional start/end points, loop and start delay.
+- **Start a sound**: a file with a level, a fade-in time, optional start/end points (with a 10 ms declick when they fall inside the music), loop and start delay.
+- **GO on a step that is still playing** starts it again from its start point, and the copy that was playing fades out like any sound a GO ends: by the step's "everything else" fade time, or the show's default fade when the step keeps everything else or has its own change for that sound (its own fade-out change is used as it is). For a few seconds you hear both copies; shorten that step's fade time for a quicker change.
 - **Change sounds that are already running**: for each one, *keep*, *go to level X dB*, or *fade out*, each with its own time. A time of 0 is immediate, with a 10 ms declick (so a level change or fade out never clicks).
 
 A **fade step** is a step that starts no sound and only changes the running ones. Add one with "Add fade step"; it goes in after NEXT.

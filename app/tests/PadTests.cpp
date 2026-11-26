@@ -387,7 +387,136 @@ TEST_CASE("setMode refuses Show while the engine reports paused") {
     REQUIRE(app.session().mode() == ShowMode::Edit);
     REQUIRE(!app.session().setMode(ShowMode::Show));
     REQUIRE(app.session().mode() == ShowMode::Edit);
-    REQUIRE(app.session().status().message == "Resume first");
+    REQUIRE(app.session().status().message == juce::String::fromUTF8(ShowSession::kShowRefusedPaused));
+}
+
+TEST_CASE("pad editor start and end: stored in Edit mode, end before start refused") {
+    ManualClock clock;
+    TestApp app(padShow());
+    app.waitHeads();
+    auto& editor = openPadEditor(app, 0);
+    auto& start = AppTestAccess::padStart(editor);
+    auto& end = AppTestAccess::padEnd(editor);
+    requireHittable(start);
+    requireHittable(end);
+    end.onCommit(4.0);
+    start.onCommit(1.5);
+    CHECK(pad(app, 0).startSeconds == 1.5);
+    CHECK(pad(app, 0).endSeconds == 4.0);
+    end.onCommit(1.0);  // not after the start: refused with a notice, the old end stays
+    CHECK(pad(app, 0).endSeconds == 4.0);
+    CHECK(app.session().status().message == "End must be after Start");
+    end.onClear();  // empty: play to the end of the file
+    CHECK_FALSE(pad(app, 0).endSeconds.has_value());
+}
+
+TEST_CASE("a pad's start and end are Edit-only, like a step's") {
+    ManualClock clock;
+    TestApp app(padShow());
+    app.waitHeads();
+    AppTestAccess::pickMode(app.main(), ShowMode::Rehearsal);
+    app.tick();
+    auto& editor = openPadEditor(app, 0);
+    CHECK_FALSE(AppTestAccess::padStart(editor).isEnabled());
+    CHECK(AppTestAccess::padLevel(editor).isEnabled());
+}
+
+namespace {
+
+// Pad @p index's centre in the step rows' coordinates, where a handle drag's events land.
+juce::Point<int> padInRows(TestApp& app, int index) {
+    auto& rows = AppTestAccess::rows(AppTestAccess::steps(app.main()));
+    auto& cells = AppTestAccess::padCells(AppTestAccess::pads(app.main()));
+    return rows.getLocalPoint(&cells, padPoint(app, index));
+}
+
+std::vector<StepId> stepOrder(TestApp& app) {
+    std::vector<StepId> ids;
+    for (const auto& s : app.session().controller().show().steps) ids.push_back(s.id);
+    return ids;
+}
+
+}  // namespace
+
+TEST_CASE("dragging a row by its handle onto a pad assigns it") {
+    ManualClock clock;
+    Show show = padShow();
+    show.steps[1].sound->startSeconds = 1.0;
+    show.pads[3].levelDb = -6.0;
+    TestApp app(show);
+    app.waitHeads();
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    const auto before = stepOrder(app);
+    const auto handle = AppTestAccess::handlePoint(list, 1);
+    const auto target = padInRows(app, 3);
+    press(rows, handle, 0, &list);
+    drag(rows, handle, target, 0, &list);
+    CHECK(AppTestAccess::padDropHighlight(AppTestAccess::pads(app.main())) == 3);
+    CHECK(AppTestAccess::insertionLine(list) == -1);  // over a pad: no line in the list
+    release(rows, handle, target, 0, &list);
+    app.tick();
+    const Pad& p = pad(app, 3);
+    CHECK(p.name == "Song A");
+    CHECK(p.file == show.steps[1].sound->file);
+    CHECK(p.startSeconds == 1.0);
+    CHECK(p.levelDb == -6.0);  // the pad keeps its own level
+    CHECK(stepOrder(app) == before);
+    CHECK(AppTestAccess::padDropHighlight(AppTestAccess::pads(app.main())) == -1);
+}
+
+TEST_CASE("a drag that leaves for a pad and comes back still reorders") {
+    ManualClock clock;
+    TestApp app(padShow());
+    app.waitHeads();
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    const auto before = stepOrder(app);
+    const auto handle = AppTestAccess::handlePoint(list, 2);
+    const juce::Point<int> top{120, AppTestAccess::rowTop(list, 0) + 5};
+    press(rows, handle, 0, &list);
+    drag(rows, handle, padInRows(app, 3), 0, &list);
+    drag(rows, handle, top, 0, &list);
+    CHECK(AppTestAccess::padDropHighlight(AppTestAccess::pads(app.main())) == -1);
+    release(rows, handle, top, 0, &list);
+    app.tick();
+    CHECK(stepOrder(app) == std::vector<StepId>{before[2], before[0], before[1]});
+    CHECK(pad(app, 3).name.empty());
+}
+
+TEST_CASE("a fade step dropped on a pad is refused") {
+    ManualClock clock;
+    Show show = padShow();
+    show.steps[1].sound.reset();  // a fade step: no sound to give a pad
+    TestApp app(show);  // no waitHeads(): its file is used by nothing now, so it is never read
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    const auto handle = AppTestAccess::handlePoint(list, 1);
+    const auto target = padInRows(app, 3);
+    press(rows, handle, 0, &list);
+    drag(rows, handle, target, 0, &list);
+    release(rows, handle, target, 0, &list);
+    app.tick();
+    CHECK_FALSE(pad(app, 3).file.has_value());
+    CHECK(app.session().status().message.isNotEmpty());
+}
+
+// A new file on a pad starts with the whole file: the old range belonged to the old sound.
+TEST_CASE("a file dropped on a pad clears the pad's old start and end") {
+    ManualClock clock;
+    Show show = padShow();
+    show.pads[1] = Pad{.name = "Long", .file = kPadFile, .levelDb = 0.0, .startSeconds = 90.0, .endSeconds = 120.0};
+    TestApp app(show);
+    TempDir source;
+    const auto file = source.dir.getChildFile("Fanfare.flac");
+    REQUIRE(writeSineFlac(file, 1.0, 0.1f));
+    auto& grid = AppTestAccess::pads(app.main());
+    const auto at = grid.getLocalPoint(&AppTestAccess::padCells(grid), padPoint(app, 1));
+    grid.filesDropped(juce::StringArray(file.getFullPathName()), at.x, at.y);
+    app.waitUntil([&] { return pad(app, 1).name == "Fanfare"; });
+    CHECK(pad(app, 1).startSeconds == 0.0);
+    CHECK_FALSE(pad(app, 1).endSeconds.has_value());
+    app.waitUntil([&] { return !app.session().importsRunning(); });
 }
 
 }  // namespace bigtop::app

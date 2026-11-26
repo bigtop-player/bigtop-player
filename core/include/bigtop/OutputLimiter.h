@@ -53,6 +53,15 @@ public:
     /// @note Any thread (atomic). Meant for a meter or a "limiting" light.
     float gainReductionDb() const noexcept { return reductionDb_.load(std::memory_order_relaxed); }
 
+    /// @brief The deepest gain reduction since the last call, then starts a new hold.
+    /// @return Gain reduction in dB: the most the limiter turned the level down
+    ///         since the previous call (or construction / reset()), 0 if it never did.
+    /// @note Any thread (atomic), one reader. A slow reader (a 4 Hz light) still
+    ///       sees a short over that the release has already undone. An over that
+    ///       lands between the reader's exchange and the audio thread's store can
+    ///       be reported one call late, never lost for long: fine for a light.
+    float takePeakReductionDb() noexcept { return peakReductionDb_.exchange(gainReductionDb(), std::memory_order_relaxed); }
+
     /// @brief Clears the delay line and the gain state, as if just constructed.
     /// @note Not concurrent with process(): call while audio is stopped.
     void reset() noexcept;
@@ -76,6 +85,7 @@ private:
     double gain_ = 1.0;  ///< @brief Gain applied to the sample leaving the delay line.
     double step_ = 0.0;  ///< @brief Per-frame decrease of the current downward ramp; 0 when not ramping.
     std::atomic<float> reductionDb_{0.0f};  ///< @brief Published gain reduction, dB.
+    std::atomic<float> peakReductionDb_{0.0f};  ///< @brief Deepest reduction since the last takePeakReductionDb(), dB.
     // The audio thread writes it every block: it must never fall back to a lock.
     static_assert(std::atomic<float>::is_always_lock_free);
 };

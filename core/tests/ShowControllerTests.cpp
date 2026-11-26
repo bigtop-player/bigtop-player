@@ -112,7 +112,8 @@ TEST_CASE_METHOD(Fixture, "Timecode is start value plus position in the file and
 TEST_CASE_METHOD(Fixture, "Live trim scales a running sound and resets on restart", "[controller]") {
     c.setShow(twoTrackShow()); c.go(0.0); render(e, 64);
     c.setLiveTrimDb(1, -6.0206); render(e, 64); CHECK(render(e, 10)[5] == Approx(0.5f));
-    c.selectNext(0); c.go(1.0); render(e, 64); CHECK(render(e, 10)[5] == Approx(1.0f));
+    // The old copy fades out over the 2 s everything-else time; then only the new one, untrimmed, is left.
+    c.selectNext(0); c.go(1.0); render(e, 2100); CHECK(render(e, 10)[5] == Approx(1.0f));
 }
 
 // NaN/inf times that slip past the loader act as 0; a NaN level is silence.
@@ -362,4 +363,49 @@ TEST_CASE("A new controller over a full queue reports paused until resumed", "[c
     ShowController c{e, provider};
     CHECK(c.paused());
     render(e, 64); CHECK(c.resume()); CHECK_FALSE(c.paused());
+}
+
+// GO on the step that is playing: the old copy fades like any sound a GO ends.
+// Steps of twoTrackShow() fade everything else over 2 s (makeStep's default).
+TEST_CASE_METHOD(Fixture, "Restarting the playing step fades the old copy by the everything-else rule", "[controller]") {
+    c.setShow(twoTrackShow());
+    CHECK(c.go(0.0) == GoResult::Ran); render(e, 1000);
+    c.selectNext(0); CHECK(c.go(1.0) == GoResult::Ran);
+    auto out = render(e, 2100);
+    CHECK(out[1000] == Approx(1.0f + 0.70711f).margin(1e-2));  // new at full, old halfway through 2 s
+    CHECK(out[2050] == Approx(1.0f));
+}
+TEST_CASE_METHOD(Fixture, "Restarting with an own fade-out change uses that change's time", "[controller]") {
+    Show s = twoTrackShow();
+    s.steps[0].changes.push_back(Change{.target = 1, .kind = ChangeKind::FadeOut, .seconds = 4.0});
+    c.setShow(s);
+    CHECK(c.go(0.0) == GoResult::Ran); render(e, 1000);
+    c.selectNext(0); CHECK(c.go(1.0) == GoResult::Ran);
+    auto out = render(e, 2100);
+    CHECK(out[2000] == Approx(1.0f + 0.70711f).margin(1e-2));  // old halfway through its own 4 s
+}
+TEST_CASE_METHOD(Fixture, "Restarting a step that keeps everything else fades over the show default", "[controller]") {
+    Show s = twoTrackShow();
+    s.settings.defaultFadeSeconds = 3.0;
+    s.steps[0].others = Others{.kind = ChangeKind::Keep, .seconds = 0.0};
+    c.setShow(s);
+    CHECK(c.go(0.0) == GoResult::Ran); render(e, 1000);
+    c.selectNext(0); CHECK(c.go(1.0) == GoResult::Ran);
+    auto out = render(e, 3100);
+    CHECK(out[1500] == Approx(1.0f + 0.70711f).margin(1e-2));  // old halfway through the 3 s default
+    CHECK(out[3050] == Approx(1.0f));
+}
+
+// A pad plays its own range once: from its start to its end, no loop.
+TEST_CASE_METHOD(Fixture, "A pad plays from its start to its end", "[controller]") {
+    Show s = twoTrackShow();
+    s.pads[0] = Pad{.name = "Cue", .file = 1, .levelDb = 0.0, .startSeconds = 1.0, .endSeconds = 2.0};
+    c.setShow(s);
+    REQUIRE(c.triggerPad(0));
+    render(e, 900);
+    const auto mid = e.snapshot();
+    REQUIRE(mid.numVoices == 1);
+    CHECK(mid.voices[0].positionFrame == 1000 + 900);  // 1 kHz engine: started at frame 1000
+    render(e, 200);
+    CHECK(e.snapshot().numVoices == 0);  // ended at 2 s
 }

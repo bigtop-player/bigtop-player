@@ -352,3 +352,18 @@ TEST_CASE("Output: a device of the same name under another type is not the desir
     CHECK(out.running());
     CHECK(devices.manager.getCurrentAudioDeviceType() == "Asio");
 }
+
+// The meter's data: the peak since the last read, after the limiter, then reset.
+TEST_CASE("Output: takePeaks reports the peak since the last call, then starts again") {
+    SineSource source;
+    auto engine = sineEngine(source);
+    OutputChain chain(*engine);
+    chain.prepare(48000.0, 256);
+    renderLeft(chain, 4800, 256);
+    const OutputPeaks peaks = chain.takePeaks();
+    CHECK(std::abs(peaks.left - 0.5f) < 1e-3f);
+    CHECK(std::abs(peaks.right - 0.5f) < 1e-3f);
+    const OutputPeaks again = chain.takePeaks();  // nothing rendered since
+    CHECK(again.left == 0.0f);
+    CHECK(again.right == 0.0f);
+}

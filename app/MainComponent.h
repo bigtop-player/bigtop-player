@@ -13,6 +13,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "ModeBar.h"
+#include "ModeFrame.h"
 #include "PadEditor.h"
 #include "PadGrid.h"
 #include "RunningSounds.h"
@@ -61,7 +62,6 @@ public:
 
     /// @brief Draws the GO button's border in the current mode's colour (JUCE callback).
     /// @param g Graphics context; painted over the children so the border is never hidden.
-    void paintOverChildren(juce::Graphics& g) override;
 
 private:
     /// Screenshot/testing hook (Screenshots.cpp): drives the same private UI actions the buttons call
@@ -98,6 +98,7 @@ private:
     ShowSettingsPanel settingsPanel_;
     PadEditor padEditor_;  // same slot; the pad grid fills the slot while none of the three is open
     PadGrid pads_;
+    ModeFrame goFrame_;  // behind GO, in the mode colour (added before GO)
     juce::TextButton goButton_{"GO (Space)"}, fadeButton_{"Fade out (Esc)"};
     juce::TextButton pauseButton_{"Pause (P)"};  // "Resume (P)" while paused; hidden in Show mode (Action::Pause)
     juce::Label pausedBanner_{{}, "PAUSED"};      // over the running area while the snapshot says paused
@@ -111,7 +112,7 @@ private:
     bool spaceHeld_ = false, escHeld_ = false, pHeld_ = false;  // pressed and not released yet: repeats ignored
     // Up/Down repeat selects many steps a second; state.json is written at most
     // every kStateSaveMs while they do, and once when the keys are released.
-    ShowMode shownMode_ = ShowMode::Edit;  // last mode the GO border was painted for
+    ShowMode shownMode_ = ShowMode::Edit;  // last mode the layout was made for
     int shownRunningRows_ = 0;  // row count the running area was sized for
     bool stateDirty_ = false;
     juce::uint32 lastStateSaveMs_ = 0;

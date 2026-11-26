@@ -299,6 +299,7 @@ int render(const juce::File& outDir, std::initializer_list<int> widths, bool doc
     // Invented adapters from the documentation ranges (RFC 5737): nothing of this machine is ever shown.
     ShowSession::Offline offline;
     offline.savedTime = "20:00:00";  // the clock would make every re-render differ
+    offline.outputPeaks = [] { return io::OutputPeaks{0.45f, 0.4f}; };  // a steady level, so the meter shows in the images
     offline.adapters = {{juce::IPAddress("198.51.100.20"), juce::IPAddress("198.51.100.255"), "Ethernet"},
                         {juce::IPAddress("192.0.2.15"), juce::IPAddress("192.0.2.255"), "Wi-Fi"}};
     for (const int width : widths) {

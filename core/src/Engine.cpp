@@ -105,7 +105,7 @@ void Engine::applyStep(const StepCommand& command) noexcept {
     }
 
     // (3) The start (which retires a voice already holding the key).
-    if (command.hasStart) startVoice(command.start);
+    if (command.hasStart) startVoice(command.start, command.restartFrames);
 }
 
 void Engine::applyChange(Voice& v, ChangeKind kind, float gain, int64_t frames) noexcept {
@@ -165,6 +165,14 @@ void Engine::fadeOutAll(int64_t frames) noexcept {
     // cannot revive a voice whose declick is heading to 0.
     const bool hurry = fadeOutAllFading_ && anyStep;
     for (Voice& v : voices_) {
+        // A step sound that lost its key (the old copy of a restarted step, fading out
+        // over the step's everything-else time) has no row and no fader: Esc is the only
+        // way to stop it, so it ends now, over the declick time.
+        if (v.source && v.key == 0 && !v.pad) {
+            if (v.delay > 0) endVoice(v);
+            else retire(v);
+            continue;
+        }
         if (!v.source || !isStepVoice(v.key)) continue;
         if (v.delay > 0) { endVoice(v); continue; }  // pending starts are cancelled
         if (hurry) retire(v);
@@ -206,6 +214,7 @@ void Engine::seek(VoiceKey key, int64_t frame) noexcept {
     const bool wasDriver = timecodeVoice_ == old;
     *slot = *old;
     slot->position = std::clamp(frame, old->startFrame, old->endFrame - 1);
+    slot->endRampStarted = false;  // a jump back before the end point needs its end ramp again
     // Rising sin against the old voice's falling cos: an equal-power join.
     slot->declick = Fader(0.0f);
     slot->declick.fadeTo(1.0f, declickFrames());
@@ -273,7 +282,7 @@ void Engine::retire(Voice& v) noexcept {
     v.stopWhenSilent = true;
 }
 
-void Engine::startVoice(const StartSpec& spec) noexcept {
+void Engine::startVoice(const StartSpec& spec, int64_t restartFrames) noexcept {
     // Invalid starts are ignored quietly: they are a show-data problem, not a
     // voice shortage, so they do not count as dropped starts.
     if (!spec.source) return;
@@ -292,12 +301,19 @@ void Engine::startVoice(const StartSpec& spec) noexcept {
 
     // Restart rule, applied only once the new voice is sure to start, so a
     // dropped or invalid start never silences the old one. A pending old
-    // voice never sounded and is simply cancelled; a sounding one is retired
-    // (fades out over the declick time) while the new one takes the key.
+    // voice never sounded and is simply cancelled, as is one frozen by a pause
+    // (silent). A sounding one loses its key to the new voice and fades out
+    // like any sound a GO ends: over restartFrames (never faster than the
+    // declick), unless it already fades out, which keeps its own fade.
     for (Voice& old : voices_) {
         if (!old.source || old.key == 0 || old.key != spec.key) continue;
-        if (old.delay > 0) endVoice(old);
-        else retire(old);
+        if (old.delay > 0 || frozen(old)) { endVoice(old); continue; }
+        if (timecodeVoice_ == &old) timecodeVoice_ = nullptr;  // the new voice takes the role if it drives
+        old.key = 0;
+        if (!old.stopWhenSilent) {
+            old.programmed.fadeTo(0.0f, std::max(restartFrames, declickFrames()));
+            old.stopWhenSilent = true;
+        }
     }
 
     Voice& v = *slot;
@@ -324,7 +340,15 @@ void Engine::startVoice(const StartSpec& spec) noexcept {
         v.programmed.fadeTo(gain, spec.fadeInFrames);
     } else {
         v.programmed = Fader(gain);
+        // A start point inside the music cuts in mid-waveform: rise over the declick.
+        // A start at the file's beginning plays as recorded (files start from silence).
+        if (startFrame > 0) {
+            v.declick = Fader(0.0f);
+            v.declick.fadeTo(1.0f, declickFrames());
+        }
     }
+    // Likewise an end point before the file's end: ramp out over the declick just before it.
+    v.declickEnd = !spec.loop && endFrame < spec.source->lengthFrames();
 }
 
 void Engine::renderVoice(Voice& v, float* left, float* right, const float* pauseGain, int frames) noexcept {
@@ -347,7 +371,18 @@ void Engine::renderVoice(Voice& v, float* left, float* right, const float* pause
     float srcR[kMaxPassFrames];
     while (i < frames) {
         // Read up to the end point (or the end of this pass, if sooner).
-        const int n = static_cast<int>(std::min<int64_t>(frames - i, v.endFrame - v.position));
+        int64_t upTo = v.endFrame;
+        if (v.declickEnd && !v.endRampStarted) {
+            // Stop at the ramp's first frame, start the ramp there, then go on to the end point.
+            const int64_t rampAt = std::max(v.endFrame - declickFrames(), v.startFrame);
+            if (v.position >= rampAt) {
+                v.declick.fadeTo(0.0f, std::max<int64_t>(v.endFrame - v.position, 1));
+                v.endRampStarted = true;
+            } else {
+                upTo = rampAt;
+            }
+        }
+        const int n = static_cast<int>(std::min<int64_t>(frames - i, upTo - v.position));
         v.source->read(v.position, srcL, srcR, n);
         for (int k = 0; k < n; ++k) {
             // Output = sample x programmed x declick x trim. Each fader steps

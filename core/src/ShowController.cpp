@@ -142,6 +142,15 @@ GoResult ShowController::go(double nowSeconds) {
         cmd.othersKind = ChangeKind::FadeOut;
         cmd.othersFrames = toFrames(step.others.seconds);
     }
+    // GO on the step that is playing ends the old copy like any sound a GO
+    // ends: by the everything-else rule, or over the show default when that
+    // keeps. An own FadeOut change already fades it in the engine (kept there);
+    // an own Level or Keep change means "not by the others rule": the default.
+    const bool ownChange = std::any_of(step.changes.begin(), step.changes.end(),
+                                       [&](const Change& ch) { return ch.target == step.id; });
+    cmd.restartFrames = cmd.othersKind == ChangeKind::FadeOut && !ownChange
+                            ? cmd.othersFrames
+                            : toFrames(show_.settings.defaultFadeSeconds);
 
     if (!engine_.post(cmd)) return GoResult::EngineBusy;
     // A non-finite time was let through above (fail open) but is not stored:
@@ -209,9 +218,11 @@ bool ShowController::triggerPad(int index) {
         cmd.numChanges = 1;
         cmd.changes[0] = {key, ChangeKind::FadeOut, 0.0f, toFrames(kPadStopSeconds)};
     } else {
-        Sound sound;  // whole file, no fade, no delay, no loop
+        Sound sound;  // the pad's range, no fade, no delay, no loop
         sound.file = *pad.file;
         sound.levelDb = pad.levelDb;
+        sound.startSeconds = pad.startSeconds;
+        sound.endSeconds = pad.endSeconds;
         if (!makeStart(cmd.start, key, sound)) return false;
         cmd.hasStart = true;
     }

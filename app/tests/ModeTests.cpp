@@ -184,8 +184,11 @@ TEST_CASE("every Action is enabled, hidden or refused as Mode.h says") {
         {Action::SwitchShow, "Shows... in the status bar",
          [&](bool ok) {
              auto& shows = button(main, juce::String::fromUTF8("Shows\xe2\x80\xa6"));
+             // A mode that refuses it hides it: nothing left to tap that does nothing.
+             REQUIRE(shows.isVisible() == ok);
+             if (!ok) return;
              requireHittable(shows);
-             REQUIRE(shows.isEnabled() == ok);
+             REQUIRE(shows.isEnabled());
              auto& go = AppTestAccess::goButton(main);
              REQUIRE(go.isVisible());
              tap(shows, centre(shows));
@@ -201,8 +204,10 @@ TEST_CASE("every Action is enabled, hidden or refused as Mode.h says") {
         {Action::ShowSettings, "Show settings in the status bar",
          [&](bool ok) {
              auto& b = button(main, "Show settings");
+             REQUIRE(b.isVisible() == ok);
+             if (!ok) return;
              requireHittable(b);
-             REQUIRE(b.isEnabled() == ok);
+             REQUIRE(b.isEnabled());
              auto& panel = AppTestAccess::settingsPanel(main);
              REQUIRE(!panel.isVisible());
              tap(b, centre(b));
@@ -218,8 +223,10 @@ TEST_CASE("every Action is enabled, hidden or refused as Mode.h says") {
          [&](bool ok) {
              // Enabled state only: a tap opens the real device settings window, which tests never open.
              auto& b = button(main, "Settings");
+             REQUIRE(b.isVisible() == ok);
+             if (!ok) return;
              requireHittable(b);
-             REQUIRE(b.isEnabled() == ok);
+             REQUIRE(b.isEnabled());
          }},
         {Action::Pause, "the Pause button",
          [&](bool ok) {
@@ -432,6 +439,157 @@ TEST_CASE("every Action is enabled, hidden or refused as Mode.h says") {
     for (const auto& row : table) {
         INFO("action " << static_cast<int>(row.action) << ": " << row.what);
         row.check(allowed(mode, row.action));
+    }
+}
+
+TEST_CASE("Show mode refused while paused says why") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    auto& main = app.main();
+    AppTestAccess::go(main);
+    app.audio(5);
+    auto& pause = AppTestAccess::pauseButton(main);
+    tap(pause, centre(pause));
+    app.audio(2);
+    REQUIRE(app.session().snapshot().paused);
+
+    // The strip's tap ends in pickMode(); a windowless test cannot tap it
+    // (Component::contains() needs a window), so the test enters there.
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    app.tick();
+    REQUIRE(app.session().mode() == ShowMode::Edit);
+    auto& notice = AppTestAccess::statusMessage(main);
+    requireHittable(notice);
+    REQUIRE(notice.getText() == juce::String::fromUTF8(ShowSession::kShowRefusedPaused));
+}
+
+TEST_CASE("hold bar stays inside the button's rounded corners") {
+    Holding h;
+    holdFor(h.clock, h.bar, 1900);  // about 95 %: the bar reaches the bottom-left and bottom-right corners
+    const auto image = h.edit.createComponentSnapshot(h.edit.getLocalBounds(), true, 1.0f);
+    const int bottom = image.getHeight() - 1;
+    // Outside the rounded corner the button paints nothing: the strip shows through.
+    CHECK(image.getPixelAt(0, bottom).getAlpha() == 0);
+    CHECK(image.getPixelAt(1, bottom - 1).getAlpha() == 0);
+    // The bar itself is painted along the bottom edge.
+    CHECK(image.getPixelAt(image.getWidth() / 2, bottom - 2).getAlpha() == 255);
+}
+
+TEST_CASE("hidden status-bar buttons leave the rest in place") {
+    TestApp app(threeSoundSteps());
+    auto& main = app.main();
+    auto& showSettings = button(main, "Show settings");
+    REQUIRE(showSettings.isVisible());
+    auto* status = showSettings.getParentComponent();
+    std::vector<juce::Rectangle<int>> before;
+    for (auto* c : status->getChildren()) before.push_back(c->getBounds());
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    app.tick();
+    REQUIRE_FALSE(showSettings.isVisible());
+    // Nothing moves under a finger: every part keeps its place, the hidden buttons leave a gap.
+    for (int i = 0; i < status->getNumChildComponents(); ++i)
+        if (auto* c = status->getChildComponent(i); c->isVisible()) CHECK(c->getBounds() == before[static_cast<size_t>(i)]);
+}
+
+namespace {
+
+// threeSoundSteps() with "Pause in Show mode" set as given.
+Show pauseShow(bool pauseInShow) {
+    Show show = threeSoundSteps();
+    show.settings.pauseInShow = pauseInShow;
+    return show;
+}
+
+}  // namespace
+
+TEST_CASE("with Pause in Show mode on, Show mode has Pause") {
+    ManualClock clock;
+    TestApp app(pauseShow(true));
+    app.waitHeads();
+    auto& main = app.main();
+    AppTestAccess::go(main);
+    app.audio(5);
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    app.tick();
+    REQUIRE(app.session().mode() == ShowMode::Show);
+    auto& pause = AppTestAccess::pauseButton(main);
+    requireHittable(pause);
+    tap(pause, centre(pause));
+    app.audio(2);
+    REQUIRE(app.session().snapshot().paused);
+    // Paused in Edit, then into Show: allowed when Show mode has Pause.
+    AppTestAccess::pickMode(main, ShowMode::Edit);
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    REQUIRE(app.session().mode() == ShowMode::Show);
+}
+
+TEST_CASE("turning Pause in Show mode off while paused keeps the pause and refuses Show") {
+    ManualClock clock;
+    TestApp app(pauseShow(true));
+    app.waitHeads();
+    auto& main = app.main();
+    AppTestAccess::go(main);
+    app.audio(5);
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    auto& pause = AppTestAccess::pauseButton(main);
+    tap(pause, centre(pause));
+    app.audio(2);
+    AppTestAccess::pickMode(main, ShowMode::Edit);
+    REQUIRE(app.session().edit(Action::ShowSettings, [](Show& s) {
+        s.settings.pauseInShow = false;
+        return true;
+    }));
+    app.tick();
+    REQUIRE(app.session().snapshot().paused);
+    AppTestAccess::pickMode(main, ShowMode::Show);
+    REQUIRE(app.session().mode() == ShowMode::Edit);
+    REQUIRE(app.session().status().message == juce::String::fromUTF8(ShowSession::kShowRefusedPaused));
+}
+
+TEST_CASE("the Pause in Show mode tick box sets the show setting") {
+    TestApp app(threeSoundSteps());
+    auto& main = app.main();
+    AppTestAccess::openShowSettings(main);
+    // The tick box sits in the panel's scrolled content: search the whole tree.
+    std::function<juce::Component*(juce::Component&)> find = [&](juce::Component& c) -> juce::Component* {
+        for (auto* child : c.getChildren()) {
+            if (child->getComponentID() == "pauseInShow") return child;
+            if (auto* found = find(*child)) return found;
+        }
+        return nullptr;
+    };
+    auto* tick = dynamic_cast<juce::ToggleButton*>(find(AppTestAccess::settingsPanel(main)));
+    REQUIRE(tick != nullptr);
+    REQUIRE_FALSE(tick->getToggleState());
+    tap(*tick, centre(*tick));
+    REQUIRE(app.session().controller().show().settings.pauseInShow);
+    REQUIRE(tick->getToggleState());
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("the GO mode frame follows the button and never lies on Pause, + Fade or Fade out") {
+    // The border used to be painted by the window around the button's bounds; after a
+    // mode switch moved the buttons, its old stroke stayed on Pause and Fade out.
+    // As its own child, JUCE repaints the frame's old and new place itself.
+    TestApp app(threeSoundSteps());
+    auto& main = app.main();
+    for (const auto mode : {ShowMode::Show, ShowMode::Rehearsal, ShowMode::Edit, ShowMode::Show, ShowMode::Edit}) {
+        AppTestAccess::pickMode(main, mode);
+        app.tick();
+        INFO("mode " << static_cast<int>(mode));
+        const auto& frame = AppTestAccess::goFrame(main);
+        const auto& go = AppTestAccess::goButton(main);
+        REQUIRE(frame.isVisible());
+        CHECK(frame.getBounds() == go.getBounds().expanded(ModeFrame::kWidth));
+        CHECK(frame.colour() == juce::Colour(modeColour(mode)));
+        for (juce::Component* other : {static_cast<juce::Component*>(&AppTestAccess::pauseButton(main)),
+                                       static_cast<juce::Component*>(&AppTestAccess::fadeButton(main)),
+                                       static_cast<juce::Component*>(&AppTestAccess::addFadeButton(main))})
+            if (other->isVisible()) CHECK_FALSE(frame.getBounds().intersects(other->getBounds()));
     }
 }
 

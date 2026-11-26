@@ -14,7 +14,7 @@ namespace {
 
 constexpr int kRow = NumberField::kHeight;  // every touch target is at least 48 px
 constexpr int kGap = 6;
-constexpr double kMaxPositionSeconds = 24.0 * 3600.0;  // start / end inside a file
+constexpr double kMaxPositionSeconds = kEditMaxPositionSeconds;  // start / end inside a file
 const juce::Colour kPanel(0xff23262b);
 const juce::Colour kAccent(0xff3a6ea5);
 const juce::Colour kHint = juce::Colours::grey;

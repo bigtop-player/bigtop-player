@@ -125,6 +125,8 @@ TestApp::TestApp(const Show& show, int width, int height) {
     settings_ = std::make_unique<io::AppSettings>(temp_.dir.getChildFile("settings.xml"));
     // Invented adapters from the documentation ranges (RFC 5737), as the screenshot mode uses.
     offline_.savedTime = "20:00:00";
+    offline_.gainReductionDb = [this] { return gainReductionDb_; };
+    offline_.outputPeaks = [this] { return outputPeaks_; };
     offline_.adapters = {{juce::IPAddress("198.51.100.20"), juce::IPAddress("198.51.100.255"), "Ethernet"},
                          {juce::IPAddress("192.0.2.15"), juce::IPAddress("192.0.2.255"), "Wi-Fi"}};
     main_ = std::make_unique<MainComponent>(*settings_, devices_, &offline_);

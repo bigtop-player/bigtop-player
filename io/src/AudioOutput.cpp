@@ -54,6 +54,13 @@ void OutputChain::fill(int needed) noexcept {
         float* r = fifoR_.data() + fifoCount_;
         engine_.process(l, r, n);
         limiter_.process(l, r, n);
+        float pl = 0.0f, pr = 0.0f;  // the meter's peaks, taken here once per engine block
+        for (int i = 0; i < n; ++i) {
+            pl = std::max(pl, std::abs(l[i]));
+            pr = std::max(pr, std::abs(r[i]));
+        }
+        if (pl > peakL_.load(std::memory_order_relaxed)) peakL_.store(pl, std::memory_order_relaxed);
+        if (pr > peakR_.load(std::memory_order_relaxed)) peakR_.store(pr, std::memory_order_relaxed);
         fifoCount_ += n;
     }
 }

@@ -50,4 +50,48 @@ TEST_CASE("Details lines are not reworded on idle ticks but are after a rename")
     REQUIRE(AppTestAccess::describeCount(steps) > before);
 }
 
+namespace {
+
+// The name label of the running row of step @p id, after it has started.
+juce::Label& runningName(TestApp& app, StepId id) {
+    auto* row = AppTestAccess::running(app.main()).findChildWithID(juce::String(id));
+    REQUIRE(row != nullptr);
+    auto* name = dynamic_cast<juce::Label*>(row->findChildWithID("name"));
+    REQUIRE(name != nullptr);
+    return *name;
+}
+
+}  // namespace
+
+TEST_CASE("an ordinary file name fits a running row on one line") {
+    ManualClock clock;
+    Show show = threeSoundSteps();
+    show.steps[0].name = "01-01 - part i - altar";
+    TestApp app(show, 1280, 720);
+    app.waitHeads();
+    AppTestAccess::go(app.main());
+    app.audio(2);
+    auto& name = runningName(app, show.steps[0].id);
+    requireHittable(name);
+    const auto text = name.getBorderSize().subtractedFrom(name.getLocalBounds());
+    CHECK(juce::GlyphArrangement::getStringWidth(name.getFont(), name.getText()) <= static_cast<float>(text.getWidth()));
+}
+
+TEST_CASE("a long name wraps to two lines and stays off the position bar") {
+    ManualClock clock;
+    Show show = threeSoundSteps();
+    show.steps[0].name = "A very long step name that cannot fit one line of a running row";
+    TestApp app(show, 1280, 720);
+    app.waitHeads();
+    AppTestAccess::go(app.main());
+    app.audio(2);
+    auto& name = runningName(app, show.steps[0].id);
+    // LookAndFeel draws as many lines as fit the label's height, the last one cut with an ellipsis.
+    CHECK(name.getHeight() >= 2 * juce::roundToInt(name.getFont().getHeight()));
+    auto* bar = name.getParentComponent()->findChildWithID("bar");
+    REQUIRE(bar != nullptr);
+    CHECK_FALSE(name.getBounds().intersects(bar->getBounds()));
+    CHECK(bar->getWidth() >= kRowBarFloor);
+}
+
 }  // namespace bigtop::app

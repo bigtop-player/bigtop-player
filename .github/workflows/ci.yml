@@ -220,4 +220,7 @@ jobs:
         run: |
           zip="BigtopPlayer-windows-${GITHUB_REF_NAME}.zip"
           (cd dist && zip -q "../$zip" "Bigtop Player.exe")
-          gh release create "$GITHUB_REF_NAME" "$zip" --repo "$GITHUB_REPOSITORY" --generate-notes
+          # A tag with a "-" (v0.2.0-rc1) is a release candidate: a prerelease, so "latest" stays the last final release.
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "$zip" --repo "$GITHUB_REPOSITORY" --generate-notes $pre

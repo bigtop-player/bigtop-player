@@ -162,6 +162,8 @@ struct Pad {
     std::string name;            ///< @brief Button label; empty = unused pad.
     std::optional<FileId> file;  ///< @brief File to play; unset = nothing assigned.
     double levelDb = 0.0;        ///< @brief Level in dB (0 = unity).
+    double startSeconds = 0.0;   ///< @brief Where a tap starts playing, in seconds from the file's start.
+    std::optional<double> endSeconds{};  ///< @brief Where it stops, in seconds; unset = the file's end.
     /// @brief Member-wise equality.
     /// @param other Pad to compare with.
     /// @return True if all fields are equal.
@@ -176,6 +178,10 @@ struct Settings {
     /// @brief Minimum time in seconds between two accepted GO presses, so a
     ///        double tap on the button doesn't skip a step.
     double goGuardSeconds = 0.3;
+    /// @brief True: Pause (button and P) is also available in Show mode, and
+    ///        Show mode may be entered while paused. False (the default, and
+    ///        what an older show file without the key gets): Show mode has no Pause.
+    bool pauseInShow = false;
     /// @brief Frame rate of the timecode Bigtop sends, in frames per second.
     ///
     /// @warning Allowed values are 24, 25 or 30 (fromJson() rejects anything

@@ -31,6 +31,13 @@ inline constexpr double kEngineSampleRate = 48000.0;
 ///        Engine::process() call (SoundSource::read handles at most 512).
 inline constexpr int kMaxEngineBlock = 512;
 
+/// @brief The highest output sample per channel over a span of time, after the
+///        limiter (what reaches the desk), as linear values in [0, 1].
+struct OutputPeaks {
+    float left = 0.0f;   ///< @brief Left channel peak, linear.
+    float right = 0.0f;  ///< @brief Right channel peak, linear.
+};
+
 /// @brief The device-independent output path: pulls 48 kHz blocks from the
 ///        engine, limits them, and converts them to the device rate.
 ///
@@ -79,6 +86,18 @@ public:
     /// @note Any thread.
     float gainReductionDb() const noexcept { return limiter_.gainReductionDb(); }
 
+    /// @brief The limiter's deepest gain reduction since the last call (see OutputLimiter::takePeakReductionDb()).
+    /// @return Gain reduction in dB, 0 if it never limited.
+    float takePeakReductionDb() noexcept { return limiter_.takePeakReductionDb(); }
+
+    /// @brief The output peaks since the last call, then starts a new span (for a level meter).
+    /// @return Per channel, the highest absolute sample after the limiter; 0 if nothing was rendered.
+    /// @note Any thread, one reader. A peak the audio thread stores between the
+    ///       reader's two exchanges can be lost: fine for a meter, which is not a measurement.
+    OutputPeaks takePeaks() noexcept {
+        return {peakL_.exchange(0.0f, std::memory_order_relaxed), peakR_.exchange(0.0f, std::memory_order_relaxed)};
+    }
+
 private:
     void renderChunk(float* const* out, int numChannels, int offset, int frames) noexcept;
     void fill(int needed) noexcept;
@@ -87,6 +106,8 @@ private:
     OutputLimiter limiter_;
     double ratio_ = 1.0;       ///< @brief Engine frames per device frame (48000 / deviceRate).
     int maxBlock_ = 0;         ///< @brief Device frames per renderChunk(); 0 = not prepared.
+    std::atomic<float> peakL_{0.0f}, peakR_{0.0f};  ///< @brief Output peaks since the last takePeaks().
+    static_assert(std::atomic<float>::is_always_lock_free);  // written on the audio thread
     std::vector<float> fifoL_, fifoR_;  ///< @brief Limited 48 kHz frames not yet used; valid in [0, fifoCount_).
     int fifoCount_ = 0;
     std::vector<float> scratchL_, scratchR_;  ///< @brief Converter output, maxBlock_ frames each.
@@ -174,6 +195,14 @@ public:
     /// @return dB, 0 when not limiting.
     /// @note Any thread.
     float gainReductionDb() const noexcept { return chain_.gainReductionDb(); }
+
+    /// @brief The output limiter's deepest gain reduction since the last call (for the CLIP light).
+    /// @return Gain reduction in dB, 0 if it never limited.
+    float takePeakReductionDb() noexcept { return chain_.takePeakReductionDb(); }
+
+    /// @brief The output peaks since the last call (see OutputChain::takePeaks()).
+    /// @return Per channel, the highest absolute sample after the limiter.
+    OutputPeaks takePeaks() noexcept { return chain_.takePeaks(); }
 
 private:
     void audioDeviceIOCallbackWithContext(const float* const* inputChannelData, int numInputChannels,

@@ -8,7 +8,7 @@
 # bigtop_app_lib holds every app source but Main.cpp (the only one with
 # START_JUCE_APPLICATION), so the app and its test exe link the same code.
 add_library(bigtop_app_lib STATIC
-    MainComponent.cpp ShowSession.cpp StartPanel.cpp StatusBar.cpp SettingsWindow.cpp
+    MainComponent.cpp ShowSession.cpp StartPanel.cpp StatusBar.cpp LevelMeter.cpp SettingsWindow.cpp
     StepList.cpp RunningSounds.cpp ModeBar.cpp
     NumberField.cpp StepEditor.cpp ShowSettingsPanel.cpp PadGrid.cpp PadEditor.cpp Screenshots.cpp
     DemoAudio.cpp Pointer.cpp UiClock.cpp)
@@ -26,7 +26,7 @@ bigtop_warnings(bigtop_app)
 add_executable(bigtop_app_tests tests/AppTestMain.cpp tests/AppTestSupport.cpp tests/SmokeTests.cpp
                                 tests/RunningTests.cpp tests/LayoutTests.cpp tests/StepListTests.cpp
                                 tests/ModeTests.cpp tests/EditorTests.cpp tests/PadTests.cpp
-                                tests/AccessibilityTests.cpp)
+                                tests/AccessibilityTests.cpp tests/StatusTests.cpp)
 target_link_libraries(bigtop_app_tests PRIVATE bigtop_app_lib Catch2::Catch2)
 bigtop_warnings(bigtop_app_tests)
 # The "app:" prefix lets `ctest -R "^app:"` (CI) pick exactly these.

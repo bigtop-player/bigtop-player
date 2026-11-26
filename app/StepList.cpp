@@ -326,7 +326,15 @@ void StepList::paintRow(int row, juce::Graphics& g, int width, int height) {
     const auto state = stepRowState(row, next, voice != end, voice != end && voice->pending, usable, importing);
 
     auto& lf = getLookAndFeel();
+    // A row whose sound is heard (not one still in its start delay) is tinted, so the
+    // operator sees at a glance where the show is; NEXT keeps its colour and gets a bar.
+    const bool sounding = voice != end && !voice->pending;
     if (row == next) g.fillAll(lf.findColour(juce::TextEditor::highlightColourId));  // the scheme's accent, tinted
+    else if (sounding) g.fillAll(juce::Colour(kPlayingTint));
+    if (row == next && sounding) {
+        g.setColour(juce::Colour(kPlayingTint));
+        g.fillRect(0, 0, 6, height);
+    }
     if (row == dragFrom_ && dragActive_) g.fillAll(juce::Colours::white.withAlpha(0.12f));          // the row being carried
     const auto textColour = lf.findColour(juce::ListBox::textColourId);
     g.setColour(textColour);
@@ -475,6 +483,7 @@ void StepList::paintOverChildren(juce::Graphics& g) {
 }
 
 void StepList::cancelDrag() {
+    if (dragFrom_ >= 0 && onDragOver) onDragOver(std::nullopt);  // a pad highlight goes with the drag
     rows_->setViewportIgnoreDragFlag(false);
     dragFrom_ = -1;
     dragActive_ = false;
@@ -508,6 +517,14 @@ void StepList::mouseDrag(const juce::MouseEvent& e) {
         if (!e.mouseWasDraggedSinceMouseDown()) return;
         dragActive_ = true;
     }
+    // Over a pad: the pad lights up and the list shows no line, a drop there is not a reorder.
+    if (onDragOver && onDragOver(e.getScreenPosition())) {
+        if (gap_ != -1) {
+            gap_ = -1;
+            repaint();
+        }
+        return;
+    }
     dragTo(e.getEventRelativeTo(&view_).getPosition().y);
 }
 
@@ -532,7 +549,11 @@ void StepList::mouseUp(const juce::MouseEvent& e) {
     const int gap = gap_;
     const bool active = dragActive_;
     cancelDrag();
-    if (!active || gap < 0 || from >= numRows()) return;  // never armed, or the list changed meanwhile
+    if (!active || from >= numRows()) return;  // never armed, or the list changed meanwhile
+    // Dropped on a pad: the pad takes the step's sound, the list stays as it is.
+    if (onDropOutside && onDropOutside(session_.controller().show().steps[static_cast<size_t>(from)].id, e.getScreenPosition()))
+        return;
+    if (gap < 0) return;
     // Released well outside the list: cancel rather than throw the row to the top or end.
     const auto p = e.getEventRelativeTo(&view_).getPosition();
     if (p.x < 0 || p.x > view_.getWidth() || p.y < -kRowHeight || p.y > view_.getHeight() + kRowHeight) return;

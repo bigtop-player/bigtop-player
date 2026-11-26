@@ -84,6 +84,11 @@ void ModeBar::Button::paint(juce::Graphics& g) {
     // The filling bar of a hold: grows left to right along the button's bottom edge, the label stays readable.
     const float progress = bar_.progressOf(mode_);
     if (progress > 0.0f) {
+        // Clipped to the button's rounded shape, so the bar never pokes out at the corners.
+        const juce::Graphics::ScopedSaveState keep(g);
+        juce::Path shape;
+        shape.addRoundedRectangle(area, 8.0f);
+        g.reduceClipRegion(shape);
         g.setColour(current ? colour : kDark);
         g.fillRect(area.withTop(area.getBottom() - 6.0f).withWidth(area.getWidth() * progress));
     }

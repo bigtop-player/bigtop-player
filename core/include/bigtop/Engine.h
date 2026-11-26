@@ -95,7 +95,7 @@ struct ChangeSpec {
 ///       (2) the others rule on step voices (key < kPadKeyBase) not named in
 ///       @c changes and not keyed @c start.key, (3) the start. Starting a key
 ///       that is already playing restarts it: the old voice loses its key and
-///       fades out over kDeclickSeconds. Pads and pending voices (still in
+///       fades out over StepCommand::restartFrames. Pads and pending voices (still in
 ///       their start delay) are never touched by the others rule, so a GO
 ///       does not cancel an earlier step's pending start; an explicit change
 ///       naming a pending voice still applies (see ChangeSpec). Only the start
@@ -107,6 +107,12 @@ struct StepCommand {
     ChangeSpec changes[kMaxChanges]{};   ///< @brief Changes to named voices; a Keep entry exempts its target from the others rule.
     ChangeKind othersKind = ChangeKind::Keep;  ///< @brief What to do to unnamed sounding step voices: Keep or FadeOut (Level is treated as Keep); pending voices are skipped.
     int64_t othersFrames = 0;            ///< @brief Fade length for othersKind, in frames; shorter than kDeclickSeconds (0 included) fades over kDeclickSeconds.
+    /// @brief Fade-out length, in frames, for a sounding voice that already holds
+    ///        start.key (GO on the step that is playing): it loses its key and fades
+    ///        out over this while the new voice starts. Shorter than kDeclickSeconds
+    ///        (0 included) fades over kDeclickSeconds. A voice already fading out
+    ///        keeps its own fade; a voice still in its start delay is cancelled.
+    int64_t restartFrames = 0;
 };
 
 /// @brief Fade all step voices out (the panic/stop button). Cancels pending
@@ -268,6 +274,8 @@ private:
         bool drivesTimecode = false;  // takes the timecode role when delay reaches 0
         Timecode timecodeStart{};     // published while this voice drives; copied with it on a seek
         bool pad = false;             // started with a pad key; kept when the key is lost, so pause still skips it
+        bool declickEnd = false;      // an end point before the file's end (not looping): ramp out before it
+        bool endRampStarted = false;  // that ramp has begun
     };
 
     void drainCommands() noexcept;
@@ -282,7 +290,7 @@ private:
     void retire(Voice& v) noexcept;
     void endVoice(Voice& v) noexcept;
     int64_t declickFrames() const noexcept;
-    void startVoice(const StartSpec& spec) noexcept;
+    void startVoice(const StartSpec& spec, int64_t restartFrames) noexcept;
     void renderVoice(Voice& v, float* left, float* right, const float* pauseGain, int frames) noexcept;
     void publishSnapshot() noexcept;
 

@@ -174,12 +174,15 @@ public:
         : session_(session), controller_(session.controller()), key_(key) {
         // IDs only name the parts (the app tests find them); nothing in the app reads them.
         setComponentID(juce::String(key));
+        name_.setComponentID("name");
         bar_.setComponentID("bar");
         fader_.setComponentID("fader");
         fade_.setComponentID("fade");
         keep_.setComponentID("keep");
         edit_.setComponentID("edit");
-        name_.setFont(juce::FontOptions(18.0f));
+        // 15 px: two lines fit the name's part of a row, the second ending in an ellipsis when even that is too short.
+        name_.setFont(juce::FontOptions(15.0f));
+        name_.setMinimumHorizontalScale(1.0f);  // wrap rather than squeeze the letters
         tc_.setFont(juce::FontOptions(12.0f));
         tc_.setColour(juce::Label::textColourId, juce::Colour(0xffffb74a));
         remaining_.setFont(juce::FontOptions(24.0f, juce::Font::bold));

@@ -5,6 +5,7 @@
 | A row is red "missing file" | The audio file is gone from the show's `audio` folder. Put it back, or drop the file again. |
 | A row says "import failed" | The file could not be read. Hover it for the reason; convert it to WAV and drop it again. |
 | GO does nothing and a notice says paused | Press Resume first. |
+| SHOW does nothing and a notice says "Resume or press Esc first" | Show mode has no Pause, so it is refused while sounds are paused. Press Resume, or Esc to stop them, then SHOW. |
 | An MP3 ends too early | Some variable-bit-rate MP3s without a proper header are cut short. Listen to each MP3 ending once; convert to WAV if cut. |
 | A short gap after seeking in a long sound | Accepted: a seek into the streamed part can leave tens of milliseconds of silence, no click. |
 | GO is late with a show on an external drive | Every GO opens the file; a spun-down drive is slow. Keep shows on the internal disk. |

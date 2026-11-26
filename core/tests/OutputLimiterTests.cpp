@@ -108,3 +108,17 @@ TEST_CASE("reset clears the delay line and the gain state") {
     CHECK(l2[0] == 0.0f);    // the delay line holds silence, not the old overload
     CHECK(l2[99] == 0.25f);
 }
+
+// A 3 dB over, then 0.3 s of quiet: the current reduction has fallen below 1 dB
+// (a light sampled at 4 Hz would miss it), the held peak has not.
+TEST_CASE("The peak reduction is held until it is taken") {
+    OutputLimiter lim(48000);
+    const float over = float(dbToGain(-0.3 + 3.0));
+    std::vector<float> l(480, over), r(480, over);
+    lim.process(l.data(), r.data(), 480);
+    std::vector<float> l2(14400, 0.25f), r2(14400, 0.25f);
+    lim.process(l2.data(), r2.data(), 14400);
+    CHECK(lim.gainReductionDb() < 1.0f);
+    CHECK(lim.takePeakReductionDb() == Approx(3.0).margin(0.1));
+    CHECK(lim.takePeakReductionDb() == Approx(lim.gainReductionDb()).margin(1e-6));  // taken: only what is left
+}

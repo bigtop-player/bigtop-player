@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -32,6 +33,11 @@ enum class StepRowState {
     Importing,    ///< @brief Its file is still being imported; GO on it is refused ("importing...").
     MissingFile,  ///< @brief Its sound cannot play; GO on it is refused (red "missing file" / "import failed").
 };
+
+/// @brief Background of a row whose step has a sound playing (dark green: white text on it
+///        stays readable). A row that is also NEXT keeps the NEXT colour and shows this as a
+///        bar at its left edge.
+inline constexpr juce::uint32 kPlayingTint = 0xff1e4d33;
 
 /// @brief The state a row shows; the one rule behind the list's words.
 /// @param row Index into Show::steps.
@@ -161,6 +167,16 @@ public:
     /// @brief Called with a step's id when the user taps its row's Edit button
     ///        (Edit and Rehearsal mode). NEXT is not changed.
     std::function<void(StepId)> onEdit;
+
+    /// @brief Called while a handle drag moves, with the pointer in screen coordinates,
+    ///        and with nullopt when the drag ends. Returns true when the point is over a
+    ///        drop target outside the list (a pad): the list then shows no insertion line.
+    std::function<bool(std::optional<juce::Point<int>>)> onDragOver;
+
+    /// @brief Called when a handle drag is released outside the list, with the dragged
+    ///        step and the point in screen coordinates. Returns true when it took the drop
+    ///        (the step went onto a pad): the list does not reorder.
+    std::function<bool(StepId, juce::Point<int>)> onDropOutside;
 
     /// @brief Takes the engine's state for this tick and repaints; scrolls the
     ///        next step into view when it changed.
