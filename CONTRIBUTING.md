@@ -22,7 +22,7 @@ doxygen Doxyfile
 
 The `ctest` line also runs the windowless GUI tests (`bigtop_app_tests`, names starting `app:`; `ctest -R "^app:"` runs only them); they open no window, audio device or network socket.
 
-CI builds on Windows with Ninja instead of the Visual Studio generator, because only Ninja lets a compiler cache run in front of MSVC. Locally the Visual Studio generator stays the default. To build the way CI does, run the same lines from a "Developer PowerShell for VS" with `-G "Ninja Multi-Config"` added to the first one. `--config` and `ctest -C` work unchanged, and the app lands in the same `build/app/bigtop_app_artefacts/<config>/` folder.
+CI builds on Windows with Ninja instead of the Visual Studio generator, because only Ninja lets a compiler cache run in front of MSVC. Locally the Visual Studio generator stays the default. To build the way CI does, run the same lines from a "Developer PowerShell for VS" with `-G "Ninja Multi-Config"` added to the first one. `--config` and `ctest -C` work unchanged, and the app lands in the same `build/app/bigtop_app_artefacts/<config>/` folder. To use a compiler cache yourself, add `-DBIGTOP_COMPILER_LAUNCHER=ccache` (or `sccache`) to the first line; this works with Ninja and Makefiles, not with the Visual Studio generator. Use this option rather than CMake's own launcher variables: the build keeps the cache away from compiles it cannot handle.
 
 Linux, through WSL Ubuntu from the repo root on Windows (WSL starts in the current folder; needs cmake, g++, clang, pkg-config, `libasound2-dev`, `libfreetype-dev`, `libfontconfig1-dev`). Build dirs stay in `~/bt`, outside the Windows checkout. Warnings are errors, so a build that finishes has none.
 

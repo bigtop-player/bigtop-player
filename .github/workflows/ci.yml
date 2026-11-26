@@ -70,9 +70,8 @@ jobs:
       - &compiler-launcher
         if: "!startsWith(github.ref, 'refs/tags/')"
         shell: bash
-        run: |
-          echo "CMAKE_C_COMPILER_LAUNCHER=$LAUNCHER" >> "$GITHUB_ENV"
-          echo "CMAKE_CXX_COMPILER_LAUNCHER=$LAUNCHER" >> "$GITHUB_ENV"
+        # Read by CMakeLists.txt, which keeps the cache away from compiles it cannot handle.
+        run: echo "BIGTOP_COMPILER_LAUNCHER=$LAUNCHER" >> "$GITHUB_ENV"
         env:
           LAUNCHER: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
       - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
