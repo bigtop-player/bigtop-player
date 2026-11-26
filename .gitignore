@@ -1,3 +1,6 @@
 .superpowers/
 build/
 graphify-out/
+
+# macOS Finder
+.DS_Store

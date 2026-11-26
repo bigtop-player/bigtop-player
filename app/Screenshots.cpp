@@ -14,11 +14,13 @@
 #include "DemoAudio.h"
 #include "MainComponent.h"
 
+#if !JUCE_MAC
 // JUCE's own one-message step (juce_Messaging_windows.cpp / _linux.cpp), as the app tests use it: its
-// public wrapper, runDispatchLoopUntil(), needs JUCE_MODAL_LOOPS_PERMITTED, which the app leaves off.
+// public wrapper, runDispatchLoopUntil(), needs JUCE_MODAL_LOOPS_PERMITTED, which only macOS turns on.
 namespace juce::detail {
 bool dispatchNextMessageOnSystemQueue(bool returnIfNoPendingMessages);
 }  // namespace juce::detail
+#endif
 
 namespace bigtop::app {
 
@@ -200,7 +202,11 @@ private:
         };
         const auto until = juce::Time::getMillisecondCounter() + 5000;
         while (!ready() && juce::Time::getMillisecondCounter() < until)
+#if JUCE_MAC
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(5);  // macOS has no one-message step
+#else
             if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) juce::Thread::sleep(5);
+#endif
         if (!ready()) fail("the demo waveforms were not read within 5 s");
         return ready();
     }

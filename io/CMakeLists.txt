@@ -18,8 +18,12 @@ if(BIGTOP_BUILD_APP)
     # juce_audio_utils: the app's device selector (AudioDeviceSelectorComponent).
     target_link_libraries(bigtop_juce PRIVATE juce::juce_gui_basics juce::juce_audio_utils)
 endif()
+# JUCE_MODAL_LOOPS_PERMITTED stays off, so blocking dialogs cannot compile into
+# a live-show app. Only macOS turns it on: the app tests and --screenshots need
+# runDispatchLoopUntil() there, as macOS has no one-message step.
 target_compile_definitions(bigtop_juce
     PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1
+           $<$<PLATFORM_ID:Darwin>:JUCE_MODAL_LOOPS_PERMITTED=1>
     INTERFACE $<TARGET_PROPERTY:bigtop_juce,COMPILE_DEFINITIONS>)
 target_include_directories(bigtop_juce
     INTERFACE $<TARGET_PROPERTY:bigtop_juce,INCLUDE_DIRECTORIES>)

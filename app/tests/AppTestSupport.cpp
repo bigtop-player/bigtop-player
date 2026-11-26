@@ -12,11 +12,13 @@
 #include "Pointer.h"
 #include "bigtop/io/ShowFolder.h"
 
+#if !JUCE_MAC
 // JUCE's own one-message step (juce_Messaging_windows.cpp / _linux.cpp). Its public wrapper,
-// runDispatchLoopUntil(), needs JUCE_MODAL_LOOPS_PERMITTED, which the shipped app leaves off.
+// runDispatchLoopUntil(), needs JUCE_MODAL_LOOPS_PERMITTED, which only macOS turns on.
 namespace juce::detail {
 bool dispatchNextMessageOnSystemQueue(bool returnIfNoPendingMessages);
 }  // namespace juce::detail
+#endif
 
 namespace bigtop::app {
 
@@ -167,7 +169,11 @@ void TestApp::waitHeads() {
 void TestApp::waitUntil(const std::function<bool()>& done) {
     const auto until = juce::Time::getMillisecondCounter() + 2000;  // real time: disk threads only
     while (!done() && juce::Time::getMillisecondCounter() < until)
+#if JUCE_MAC
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(5);  // macOS has no one-message step
+#else
         if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) juce::Thread::sleep(5);  // queue empty: wait a little
+#endif
     REQUIRE(done());
 }
 
