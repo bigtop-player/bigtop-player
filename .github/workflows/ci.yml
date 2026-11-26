@@ -21,6 +21,11 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/PULL_REQUEST_TEMPLATE.md'
 
+# A new push to a pull request stops that PR's run still in progress; main and tags always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   core:
     strategy:
@@ -29,7 +34,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug
+      # The fetched dependency sources (JUCE, Catch2, json, r8brain) come from the cache, so
+      # configure skips the clones. A changed GIT_TAG still clones that dependency afresh.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --config Debug
       - run: ctest --test-dir build -C Debug --output-on-failure
 
@@ -40,12 +54,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      # The fetched dependency sources (JUCE, Catch2, json, r8brain) come from the cache, so
+      # configure skips the clones. A changed GIT_TAG still clones that dependency afresh.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
       # juce_audio_devices needs ALSA; JUCE's juceaide helper (built at
       # configure time) always compiles juce_graphics, which needs FreeType and
       # fontconfig. juce_core's rt/dl/pthread come with libc; no X11/curl needed.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfreetype-dev libfontconfig1-dev
-      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_BUILD_IO=ON
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_BUILD_IO=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --config Debug
       - run: ctest --test-dir build -C Debug --output-on-failure
 
@@ -56,10 +79,19 @@ jobs:
       CXX: clang++
     steps:
       - uses: actions/checkout@v6
+      # The fetched dependency sources (JUCE, Catch2, json, r8brain) come from the cache, so
+      # configure skips the clones. A changed GIT_TAG still clones that dependency afresh.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
       # The runner's high mmap randomisation makes TSan abort at startup
       # ("unexpected memory mapping"); 28 bits is what TSan supports.
       - run: sudo sysctl vm.mmap_rnd_bits=28
-      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_TSAN=ON
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBIGTOP_TSAN=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --target bigtop_core_tests
       # Any race report makes the run exit non-zero, failing the job.
       - run: ./build/core/bigtop_core_tests
@@ -68,7 +100,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
-      - run: cmake -B build -DBIGTOP_BUILD_APP=ON
+      # The fetched dependency sources (JUCE, Catch2, json, r8brain) come from the cache, so
+      # configure skips the clones. A changed GIT_TAG still clones that dependency afresh.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: deps-${{ github.job }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ github.job }}-${{ runner.os }}-
+      - run: cmake -B build -DBIGTOP_BUILD_APP=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
       - run: cmake --build build --config Debug
       # The windowless GUI tests (app/tests); no window, audio device or packet. A CRT assert ends the exe with code 3, never a dialog.
       - run: ctest --test-dir build -C Debug -R "^app:" --output-on-failure
@@ -116,8 +157,9 @@ jobs:
 
   # A v* tag in the public repository becomes a GitHub Release with the Windows zip.
   # Private copies of this workflow skip it, so a tag there publishes nothing.
+  # It waits for every test job, so a red test blocks the release.
   release:
-    needs: app
+    needs: [core, io, tsan, app, docs]
     if: startsWith(github.ref, 'refs/tags/v') && !github.event.repository.private
     runs-on: ubuntu-latest
     permissions:
