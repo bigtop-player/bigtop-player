@@ -1,6 +1,7 @@
 # Bigtop Player
 
-Bigtop Player is a cue-based music player for live shows: a show is an ordered list of steps, and each GO runs the next one (starting a sound and/or changing the sounds already running), built in C++20 with a JUCE front end and a JUCE-free core engine. Licensed under AGPLv3.
+Bigtop Player is a cue-based music player for live shows: a show is an ordered list of steps, and each GO runs the next one (starting a sound and/or changing the sounds already running), built in C++20 with a JUCE front end and a JUCE-free core engine.
+Licensed under AGPLv3.
 
 ## Features
 
@@ -13,10 +14,10 @@ Bigtop Player is a cue-based music player for live shows: a show is an ordered l
 - Three modes (Edit, Rehearsal, Show) so nothing can be changed by accident during a show; what a mode does not allow is hidden, not just greyed out.
 - Live faders, per-sound Fade, Keep, seeking, and Pause for everything at once (in Show mode too, if the show allows it).
 - Each running sound shows its waveform behind the position bar (start to end, or the loop), played part in blue, so you see what is coming.
-- A CLIP light that comes on only when the output limiter is heard (more than 1 dB), not for every loud master, and stays lit until you tap it; a stereo level meter next to it.
+- A CLIP light that comes on only when the output limiter is heard (more than 1 dB), and stays lit until you tap it; a stereo level meter next to it.
 - A pad grid for effects that play whatever the steps do, each with its own level and start and end points; drag a step onto a pad to reuse its sound.
 - Art-Net timecode for the lighting desk, with a choice of network adapter.
-- Export a show to one zip and import it on another laptop.
+- Export a show to one zip and import it on another system.
 
 ![Edit mode with the demo show](docs/images/edit-mode.png)
 
@@ -26,36 +27,68 @@ Bigtop Player is a cue-based music player for live shows: a show is an ordered l
 
 ![The step list with Details on](docs/images/step-details.png)
 
-More, in plain words: the [wiki pages](docs/wiki/Home.md).
+More, in plain words: see the [wiki pages](docs/wiki/Home.md).
 
 ## Download
 
-Get the Windows zip from the [Releases page](https://github.com/bigtop-player/bigtop-player/releases), unzip it into any folder and start `Bigtop Player.exe`. There is nothing to install: the exe is a single file. Your shows and settings are not in the zip; they stay where they are. Nothing is built on the show laptop.
+Get the Windows ZIP from the [Releases page](https://github.com/bigtop-player/bigtop-player/releases), unzip it into any folder and start `Bigtop Player.exe`. There is nothing to install: the exe is a single file. Your shows and settings are not in the ZIP; they stay where you choose them during project setup.
 
 ## Build from source
 
+Minimal build including tests:
 ```
 cmake -B build
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-Add `-DBIGTOP_BUILD_IO=ON` to the first command to also build the JUCE-based io library and its tests, or `-DBIGTOP_BUILD_APP=ON` to build the JUCE app as well (it turns io on). `-DBIGTOP_TSAN=ON` builds core and its tests with ThreadSanitizer (GCC/Clang only; ignored on MSVC). Warnings are errors in every target of ours.
+Also build the JUCE-based io library and its tests:
+```
+cmake -B build -DBIGTOP_BUILD_IO=ON
+[...]
+```
+
+Build the JUCE-based app including io:
+```
+cmake -B build -DBIGTOP_BUILD_APP=ON
+[...]
+```
+
+Built the core and its tests with ThreadSanitizer (GCC/Clang only; ignored on MSVC):
+```
+cmake -B -DBIGTOP_TSAN=ON
+[...]
+```
 
 ## Running the app
 
-Build it with `cmake -B build -DBIGTOP_BUILD_APP=ON` and `cmake --build build --config Release`, then start `build\app\bigtop_app_artefacts\Release\Bigtop Player.exe` (Debug builds sit in the `Debug` folder). Settings (last show, audio device) are in `%APPDATA%\Bigtop Player\settings.xml`; `--settings <file>` uses another file. `--screenshots <folder>` renders the main screens (start panel, modes, editors, running sounds, pads; at 1024, 1366 and 1920 px wide) of a generated demo show to PNG files and quits, without opening a window or touching your settings; the exit code is 0 when all files were written. `--docs-screenshots <folder>` renders the curated set used by this README and the wiki (laid out at 1920x1080, written at 1280x720) into `docs/images/` the same way. A show is a plain folder you choose: `show.json`, `state.json`, `audio/` (imported FLAC files) and `backups/`. The rehearsal list for the show laptop is [docs/rehearsal-checklist.md](docs/rehearsal-checklist.md).
+- Build the complete app:
+```
+cmake -B build -DBIGTOP_BUILD_APP=ON
+cmake --build build --config Release
+```
+- Start `build\app\bigtop_app_artefacts\Release\Bigtop Player.exe`
 
-## Moving a show to another laptop (export and import)
+### Configuration and options
 
-From now on a show folder also keeps every dropped file unchanged in `sources/` (named by its SHA-256), next to the converted FLAC in `audio/`. Shows made before this have no originals; they export their FLACs instead.
+- Settings (last show, audio device) are in `%APPDATA%\Bigtop Player\settings.xml`; `--settings <file>` uses another file.
+- `--screenshots <folder>` renders the main screens (start panel, modes, editors, running sounds, pads; at 1024, 1366 and 1920 px wide) of a generated demo show to PNG files and quits, without opening a window or touching your settings; the exit code is 0 when all files were written.
+- `--docs-screenshots <folder>` renders the curated set used by this README and the wiki (laid out at 1920x1080, written at 1280x720) into `docs/images/` the same way.
+- A show is a plain folder you choose: `show.json`, `state.json`, `audio/` (imported FLAC files) and `backups/`.
+- The rehearsal list for the show system is [docs/rehearsal-checklist.md](docs/rehearsal-checklist.md).
 
-- **Export:** in Edit mode press "Shows..." to reach the start panel, then "Export show...". Pick a folder; the app writes `<ShowName>-YYYYMMDD-HHMM.bigtop.zip` there. It holds `show.json`, `state.json` and, for each audio file a step or pad uses, the original (the FLAC when there is no original). No backups, no unused files. Entries are stored uncompressed (audio does not shrink), so the zip is as big as the originals: smaller than the 48 kHz 24-bit FLACs for MP3s, about the same for WAVs. A zip holds at most 4 GB: a show whose audio adds up to more is refused before anything is written.
-- **Import:** on the start panel (also at launch) press "Import show...", pick the zip, then an empty folder. The zip is unpacked and checked (a damaged zip, a missing `show.json`, a `show.json` the app cannot read, any path leaving the folder, or two entries with the same name is refused and the folder is left empty), then the show opens in Edit mode. The FLACs the zip left out are converted again: their rows say "importing..." and GO is refused until they are done. The same happens when you open any show whose FLAC is gone but whose original is still in `sources/`.
+## Moving a show to another system (export and import)
+
+A show folder keeps every dropped file unchanged in `sources/` (named by its SHA-256), next to the converted FLAC in `audio/`.
+Shows made before this feature have no originals; they export their FLACs instead.
+
+- **Export:** in Edit mode press "Shows..." to reach the start panel, then "Export show...". Pick a folder; the app writes `<ShowName>-YYYYMMDD-HHMM.bigtop.zip` there. It holds `show.json`, `state.json` and, for each audio file a step or pad uses, the original (the FLAC when there is no original). No backups, no unused files. Entries are stored uncompressed, so the ZIP is as big as the originals: smaller than the 48 kHz 24-bit FLACs for MP3s, about the same for WAVs. A ZIP holds at most 4 GB: a show whose audio adds up to more is refused before anything is written.
+- **Import:** on the start panel (also at launch) press "Import show...", pick the ZIP, then an empty folder. The ZIP is unpacked and checked (a damaged zip, a missing `show.json`, a `show.json` the app cannot read, any path leaving the folder, or two entries with the same name is refused and the folder is left empty), then the show opens in Edit mode. The FLACs the ZIP left out are converted again: their rows say "importing..." and GO is refused until they are done. The same happens when you open any show whose FLAC is gone but whose original is still in `sources/`.
 
 ## How the step model works
 
-A show is an ordered list of **steps**. One press of GO runs one step, then the highlight moves to the next one.
+A show is an ordered list of **steps**.
+One press of GO runs one step, then the highlight moves to the next one.
 
 A step can do either or both of two things:
 
@@ -63,17 +96,24 @@ A step can do either or both of two things:
 - **GO on a step that is still playing** starts it again from its start point, and the copy that was playing fades out like any sound a GO ends: by the step's "everything else" fade time, or the show's default fade when the step keeps everything else or has its own change for that sound (its own fade-out change is used as it is). For a few seconds you hear both copies; shorten that step's fade time for a quicker change.
 - **Change sounds that are already running**: for each one, *keep*, *go to level X dB*, or *fade out*, each with its own time. A time of 0 is immediate, with a 10 ms declick (so a level change or fade out never clicks).
 
-A **fade step** is a step that starts no sound and only changes the running ones. Add one with "Add fade step"; it goes in after NEXT.
+A **fade step** is a step that starts no sound and only changes the running ones.
+Add one with "Add fade step"; it goes in after NEXT.
 
-Every step also has an **everything else** rule for running sounds it does not mention: fade out over a time, or keep. A step that starts a sound fades the rest out over 2 s by default; a step that starts nothing keeps them. A plain playlist therefore needs no configuration.
+Every step also has an **everything else** rule for running sounds it does not mention: fade out over a time, or keep.
+A step that starts a sound fades the rest out over 2 s by default; a step that starts nothing keeps them.
+A plain playlist therefore needs no configuration.
 
-Three **modes**, switched in the strip at the top: **Edit** (everything), **Rehearsal** (play and tune levels and times, no structural edits) and **Show** (only GO, fade out, faders and pads). Leaving Show takes a 2 s hold, so a stray touch cannot change the mode.
+Three **modes**, switched in the strip at the top: **Edit** (everything), **Rehearsal** (play and tune levels and times, no structural edits) and **Show** (only GO, fade out, faders and pads).
+Leaving Show takes a 2 s hold, so a stray touch cannot change the mode.
 
-**Pause** (button or P) freezes all step sounds, including waiting start delays, and Resume carries on; pads keep playing, and GO is refused while paused. Each running sound has its own position bar (drag to seek), Fade, and Keep, which makes the current fader position the step's new level.
+**Pause** (button or P) freezes all step sounds, including waiting start delays, and Resume carries on; pads keep playing, and GO is refused while paused.
+Each running sound has its own position bar (drag to seek), Fade, and Keep, which makes the current fader position the step's new level.
 
-The side area is a **pad grid** (rows x columns in Show settings, up to 24): a tap plays a pad or fades it out, whatever the steps do. "Edit pads" opens a pad's editor instead; it also works while the pad plays: a new level or trim is heard at once with a short ramp (no click), Clear pad fades the sound out like a second tap.
+The side area is a **pad grid** (rows x columns in Show settings, up to 24): a tap plays a pad or fades it out, whatever the steps do.
+"Edit pads" opens a pad's editor instead; it also works while the pad plays: a new level or trim is heard at once with a short ramp (no click), Clear pad fades the sound out like a second tap.
 
-There are no control cues and no cue numbers to type. A running sound is identified by the step that started it, and jumping around the list never starts or stops anything by itself.
+There are no control cues and no cue numbers to type.
+A running sound is identified by the step that started it, and jumping around the list never starts or stops anything by itself.
 
 The design's own example, four steps in a row:
 
@@ -89,12 +129,16 @@ The design's own example, four steps in a row:
 
 ## How this is built
 
-Bigtop Player is written mostly by Claude, Anthropic's coding agent, under the direction of its maintainer, who decides what gets built and how it should behave. Every change is reviewed and must pass the full test suite (core engine, audio io and windowless GUI tests) with warnings treated as errors before it is merged, and releases are tried on real show hardware. Commits written with Claude carry a `Co-Authored-By: Claude` line. The rules the agent works by are in [AGENTS.md](AGENTS.md); they are the same rules human contributors follow.
+Bigtop Player is written mostly by Claude, Anthropic's coding agent, under the direction of its maintainer, who decides what gets built and how it should behave.
+Every change is reviewed and must pass the full test suite (core engine, audio io and windowless GUI tests) with warnings treated as errors before it is merged, and releases are tried on real show hardware.
+Commits written with Claude carry a `Co-Authored-By: Claude` line.
+The rules the agent works by are in [AGENTS.md](AGENTS.md); they are the same rules human contributors follow.
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to build, test and send a change.
+Bug reports, ideas and pull requests are welcome.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to build, test and send a change.
 
-## Licence
+## License
 
 AGPLv3, see [LICENSE](LICENSE).
