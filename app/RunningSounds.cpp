@@ -263,8 +263,10 @@ public:
         // A move refused by a full engine queue is retried each tick, so the
         // sound ends at the fader's last position even if the operator stopped moving.
         if (unsent_) send(*unsent_);
-        const Step* step = findStep(controller_.show(), key_);
-        // A deleted step plays on (design 8.3); it just has no name any more.
+        // A deleted step plays on (design 8.3): the row keeps the last copy it saw,
+        // so name, range and waveform stay until the sound ends.
+        if (const Step* now = findStep(controller_.show(), key_)) lastStep_ = *now;
+        const Step* step = lastStep_ ? &*lastStep_ : nullptr;
         name_.setText(step != nullptr ? juce::String::fromUTF8(step->name.c_str()) : juce::String("(removed step)"),
                       juce::dontSendNotification);
         // The bar spans start point to end point (the loop range for a loop). A removed
@@ -387,6 +389,7 @@ private:
     juce::uint32 fadeUntilMs_ = 0;  // when this row's own fade ends (counter ms); 0 = not fading
     bool keepSlot_ = false;         // Keep could apply here (mode, sound step): shown, greyed out at 0 dB
     juce::Label name_, tc_, remaining_, elapsed_;
+    std::optional<Step> lastStep_;  // the step as last seen in the show
     PositionBar bar_;
     juce::Slider fader_;
     juce::TextButton fade_{"Fade"}, keep_{"Keep"}, edit_{"Edit"};

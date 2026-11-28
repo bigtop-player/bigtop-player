@@ -480,3 +480,247 @@ TEST_CASE("rows with a running sound are tinted, NEXT keeps its look") {
 }
 
 }  // namespace bigtop::app
+
+namespace bigtop::app {
+namespace {
+// Advances past one check interval and waits for the check to finish.
+void runFileCheck(TestApp& app, ManualClock& clock) {
+    clock.advance(ShowSession::kFileCheckMs);
+    app.tick();
+    app.waitUntil([&] { return !app.session().fileCheckRunning(); });
+    app.tick();
+}
+}  // namespace
+
+TEST_CASE("A file removed while the show is open is flagged within one check, and clears when it returns") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    runFileCheck(app, clock);  // baseline
+    const auto file = app.session().showDir().getChildFile("audio/sound2.flac");
+    const auto aside = file.getSiblingFile("aside.bin");
+    REQUIRE(file.moveFileTo(aside));
+    runFileCheck(app, clock);
+    CHECK(app.session().fileProblem(2));
+    const auto a = app.session().currentAlert();
+    REQUIRE(a.has_value());
+    CHECK(a->text == "Step 2 'Song A': file missing");
+    REQUIRE(aside.moveFileTo(file));
+    runFileCheck(app, clock);
+    CHECK_FALSE(app.session().fileProblem(2));
+}
+
+TEST_CASE("A file whose size changes counts as a problem") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    runFileCheck(app, clock);
+    REQUIRE(app.session().showDir().getChildFile("audio/sound3.flac").appendText("junk"));
+    runFileCheck(app, clock);
+    CHECK(app.session().fileProblem(3));
+    const auto a = app.session().currentAlert();
+    REQUIRE(a.has_value());
+    CHECK(a->text == "Step 3 'Song B': file changed");
+}
+
+TEST_CASE("Only one file check runs at a time") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    const int before = app.fileChecks();
+    app.holdFileChecks(true);
+    app.session().checkFilesNow();
+    app.waitUntil([&] { return app.fileChecks() == before + 1; });
+    app.session().checkFilesNow();
+    clock.advance(ShowSession::kFileCheckMs);
+    app.tick();
+    CHECK(app.fileChecks() == before + 1);
+    app.holdFileChecks(false);
+    app.waitUntil([&] { return !app.session().fileCheckRunning(); });
+}
+
+TEST_CASE("A file check result for an old show is dropped") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    runFileCheck(app, clock);
+    REQUIRE(app.session().showDir().getChildFile("audio/sound2.flac").deleteFile());
+    app.holdFileChecks(true);
+    const int before = app.fileChecks();
+    app.session().checkFilesNow();
+    app.waitUntil([&] { return app.fileChecks() == before + 1; });
+    std::string error;
+    TempDir other;
+    REQUIRE(app.session().createNew(other.dir.getChildFile("Other show"), error));
+    app.holdFileChecks(false);
+    app.pumpMessages(200);  // the old check finishes and posts its result
+    CHECK_FALSE(app.session().fileProblem(2));
+    CHECK_FALSE(app.session().currentAlert().has_value());
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("A failed import is retried from its kept original, from the row's Retry button") {
+    ManualClock clock;
+    Show show = threeSoundSteps();
+    show.files[1].sourcePath = "sources/b.flac";  // Song A's original, kept in the show folder
+    TestApp app(show);
+    app.waitHeads();
+    const auto dir = app.session().showDir();
+    const auto original = dir.getChildFile("sources/b.flac");
+    REQUIRE(original.getParentDirectory().createDirectory().wasOk());
+    REQUIRE(original.replaceWithText("not audio"));
+    CHECK_FALSE(app.session().retryImport(2));  // a file that plays is never touched
+    REQUIRE(dir.getChildFile("audio/sound2.flac").deleteFile());
+    runFileCheck(app, clock);  // baseline taken before: now flagged missing
+    runFileCheck(app, clock);
+    REQUIRE(app.session().fileProblem(2));
+    REQUIRE(app.session().retryImport(2));
+    app.waitUntil([&] { return !app.session().importing(2); });
+    REQUIRE(app.session().importError(2).isNotEmpty());  // a broken original fails: the row is red
+    app.tick();
+
+    REQUIRE(dir.getChildFile("audio/sound1.flac").copyFileTo(original));  // a good original now
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    requireHittable(rows);
+    const juce::Point<int> at(StepList::retryX(rows.getWidth()) + 10, AppTestAccess::rowTop(list, 1) + 24);
+    press(rows, at, 0, &list);
+    release(rows, at, at, 0, &list);
+    REQUIRE(app.session().importing(2));
+    app.waitUntil([&] { return !app.session().importing(2); });
+    INFO(app.session().importError(2).toStdString());
+    CHECK(app.session().importError(2).isEmpty());
+    app.waitHeads();
+    CHECK(app.session().sources().fileUsable(2));
+}
+
+TEST_CASE("Retry without a kept original says so") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    runFileCheck(app, clock);
+    REQUIRE(app.session().showDir().getChildFile("audio/sound2.flac").deleteFile());
+    runFileCheck(app, clock);
+    REQUIRE(app.session().fileProblem(2));
+    CHECK_FALSE(app.session().retryImport(2));
+    CHECK(app.session().status().message == "No copy of the original is kept: drop the file again");
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("The drop line hides while a drag is outside the list and comes back inside") {
+    const ManualClock clock;
+    TestApp app(manySteps(10));
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    requireHittable(rows);
+    const auto handle = AppTestAccess::handlePoint(list, 2);
+    press(rows, handle, 0, &list);
+    drag(rows, handle, gapPoint(list, 4), 0, &list);
+    REQUIRE(AppTestAccess::insertionLine(list) == 4);
+    drag(rows, handle, {-300, gapPoint(list, 4).y}, 0, &list);  // the finger slid off the window
+    CHECK(AppTestAccess::insertionLine(list) == -1);
+    drag(rows, handle, gapPoint(list, 5), 0, &list);
+    CHECK(AppTestAccess::insertionLine(list) == 5);
+    release(rows, handle, gapPoint(list, 5), 0, &list);
+}
+
+TEST_CASE("A drag keeps its step when a row is added above it mid-drag") {
+    const ManualClock clock;
+    TestApp app(manySteps(10));
+    auto& list = AppTestAccess::steps(app.main());
+    auto& rows = AppTestAccess::rows(list);
+    requireHittable(rows);
+    const StepId carried = order(app)[3];
+    const auto handle = AppTestAccess::handlePoint(list, 3);
+    press(rows, handle, 0, &list);
+    drag(rows, handle, gapPoint(list, 7), 0, &list);
+    REQUIRE(app.session().addFadeStep().has_value());  // lands after NEXT (row 0): above the carried row
+    app.tick();
+    release(rows, handle, gapPoint(list, 7), 0, &list);
+    const auto after = order(app);
+    const auto at = std::find(after.begin(), after.end(), carried) - after.begin();
+    CHECK(at == 6);  // in the gap the line showed: rows 0-6 above it are the six that were and the fade step
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("Held Down moves one row, then at most 8 rows per second after 400 ms") {
+    ManualClock clock;
+    TestApp app(manySteps(40));
+    auto& main = app.main();
+    auto& controller = app.session().controller();
+    controller.selectNext(0);
+    for (int t = 0; t <= 1400; t += 30) {  // the OS repeats a held key about every 30 ms
+        REQUIRE(main.keyPressed(juce::KeyPress(juce::KeyPress::downKey)));
+        clock.advance(30);
+    }
+    CHECK(controller.nextIndex() >= 2);
+    CHECK(controller.nextIndex() <= 9);
+}
+
+TEST_CASE("Deleting a playing step asks first; Cancel keeps it, Delete keeps its sound playing") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    auto& main = app.main();
+    AppTestAccess::go(main);  // step 1 plays, NEXT is step 2
+    app.audio(4);
+    app.session().controller().selectNext(0);
+    REQUIRE(main.keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)));
+    auto* box = dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());
+    REQUIRE(box != nullptr);
+    CHECK(box->getHelpText() == "Step is playing. Delete it? The sound plays on.");
+    box->exitModalState(0);
+    app.pumpMessages(50);
+    CHECK(app.session().controller().show().steps.size() == 3);
+    REQUIRE(main.keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)));
+    box = dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());
+    REQUIRE(box != nullptr);
+    box->exitModalState(1);
+    app.pumpMessages(50);
+    CHECK(app.session().controller().show().steps.size() == 2);
+    app.audio(2);
+    CHECK(AppTestAccess::running(main).rows() == 1);  // its running row stays until the sound ends
+    auto& row = AppTestAccess::row(main, 1);
+    CHECK(AppTestAccess::nameOf(row).getText() == "Intro");
+}
+
+TEST_CASE("Deleting a silent step asks nothing") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    REQUIRE(app.main().keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)));
+    CHECK(juce::Component::getCurrentlyModalComponent() == nullptr);
+    CHECK(app.session().controller().show().steps.size() == 2);
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("The editor's Delete step asks first when the step is playing") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    AppTestAccess::go(app.main());
+    app.audio(4);
+    AppTestAccess::openEditor(app.main(), 1);
+    app.tick();
+    auto& del = button(AppTestAccess::editor(app.main()), "Delete step");
+    REQUIRE(del.onClick != nullptr);
+    del.onClick();
+    auto* box = dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());
+    REQUIRE(box != nullptr);
+    box->exitModalState(0);
+    app.pumpMessages(50);
+    CHECK(app.session().controller().show().steps.size() == 3);
+}
+
+}  // namespace bigtop::app

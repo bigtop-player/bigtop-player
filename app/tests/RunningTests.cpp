@@ -440,3 +440,114 @@ TEST_CASE("no Pause button in Show mode") {
 }
 
 }  // namespace bigtop::app
+
+namespace bigtop::app {
+namespace {
+// Intro, Song A, Song B, Song C; Song A and Song B name a file the show does not have.
+Show twoMissingInTheMiddle() {
+    Show show = threeSoundSteps();
+    Step extra = show.steps[2];
+    extra.id = 4;
+    extra.name = "Song C";
+    extra.sound->file = 3;  // Song B's file, kept for Song C
+    show.steps.push_back(extra);
+    show.lastStepId = 4;
+    show.files.erase(show.files.begin() + 1);  // Song A's file is gone from the show
+    show.steps[1].sound->file = 98;
+    show.steps[2].sound->file = 99;
+    return show;
+}
+}  // namespace
+
+TEST_CASE("GO on a missing file moves NEXT to the next playable step") {
+    ManualClock clock;
+    TestApp app(twoMissingInTheMiddle());
+    app.waitHeads();
+    auto& controller = app.session().controller();
+    controller.selectNext(1);
+    AppTestAccess::go(app.main());
+    CHECK(app.session().snapshot().numVoices == 0);
+    CHECK(controller.nextIndex() == 3);
+    const auto a = app.session().currentAlert();
+    REQUIRE(a.has_value());
+    CHECK(a->text == juce::String::fromUTF8("Step 2 'Song A' has no playable file \xe2\x80\x93 NEXT moved to step 4"));
+    clock.advance(1000);  // past the GO guard
+    AppTestAccess::go(app.main());
+    CHECK(controller.nextIndex() == 4);
+}
+
+TEST_CASE("GO with no playable step left keeps NEXT") {
+    const ManualClock clock;
+    Show show = twoMissingInTheMiddle();
+    show.steps.pop_back();  // nothing playable after Song A
+    show.files.pop_back();  // and Song C's file goes with it
+    TestApp app(show);
+    app.waitHeads();
+    auto& controller = app.session().controller();
+    controller.selectNext(1);
+    AppTestAccess::go(app.main());
+    CHECK(controller.nextIndex() == 1);
+    const auto a = app.session().currentAlert();
+    REQUIRE(a.has_value());
+    CHECK(a->text == "No playable step after 'Song A'");
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+namespace {
+Show ontimeShow(bool follow) {
+    Show show = threeSoundSteps();
+    show.settings.ontimeEnabled = true;
+    show.settings.ontimeHost = "192.0.2.10";
+    show.settings.ontimeFollowTransport = follow;
+    show.steps[0].sound->ontimeCue = "OPEN";
+    show.steps[1].sound->ontimeCue = "A 1";
+    return show;
+}
+const juce::String kBase = "http://192.0.2.10:4001";
+}  // namespace
+
+TEST_CASE("GO sends the step's Ontime cue, a repeat GO sends it again, a refused GO sends nothing") {
+    ManualClock clock;
+    TestApp app(ontimeShow(false));
+    app.waitHeads();
+    AppTestAccess::go(app.main());
+    clock.advance(1000);
+    app.session().controller().selectNext(0);
+    AppTestAccess::go(app.main());  // the same step again: a restart in Bigtop is a restart in Ontime
+    clock.advance(1000);
+    app.session().controller().pause();
+    AppTestAccess::go(app.main());  // refused while paused
+    CHECK(app.ontimeUrls() == std::vector<juce::String>{kBase + "/api/start/cue/OPEN", kBase + "/api/start/cue/OPEN"});
+}
+
+TEST_CASE("Pause, Resume and Esc reach Ontime only with the follow option") {
+    for (const bool follow : {false, true}) {
+        ManualClock clock;
+        TestApp app(ontimeShow(follow));
+        app.waitHeads();
+        auto& main = app.main();
+        auto& pause = AppTestAccess::pauseButton(main);
+        pause.onClick();  // Pause
+        pause.onClick();  // Resume (a second P without a release would count as a held key)
+        REQUIRE(main.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey)));
+        const auto urls = app.ontimeUrls();
+        if (follow)
+            CHECK(urls == std::vector<juce::String>{kBase + "/api/pause", kBase + "/api/start", kBase + "/api/stop"});
+        else
+            CHECK(urls.empty());
+    }
+}
+
+TEST_CASE("The Ontime light shows only when the show sends to Ontime") {
+    const ManualClock clock;
+    TestApp off(threeSoundSteps());
+    off.tick();
+    CHECK_FALSE(AppTestAccess::ontimeLight(off.main()).isVisible());
+    TestApp on(ontimeShow(false));
+    on.tick();
+    CHECK(AppTestAccess::ontimeLight(on.main()).isVisible());
+}
+
+}  // namespace bigtop::app

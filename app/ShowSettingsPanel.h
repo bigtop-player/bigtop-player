@@ -40,6 +40,8 @@ public:
 
     /// @brief Called when Close is tapped.
     std::function<void()> onClose;
+    /// @brief Called when Show check is tapped (next to Close).
+    std::function<void()> onShowCheck;
 
     /// @brief Paints the panel background (JUCE callback).
     /// @param g Graphics context.
@@ -57,6 +59,7 @@ private:
     ShowSession& session_;
     juce::Label title_;
     juce::TextButton close_{"Close"};
+    juce::TextButton showCheck_{"Show check"};  // the check also runs on its own, so it need not be always visible
     juce::Viewport view_;
     juce::Component content_;
     std::vector<std::unique_ptr<juce::Component>> owned_;

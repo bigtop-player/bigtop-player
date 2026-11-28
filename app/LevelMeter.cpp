@@ -36,9 +36,14 @@ int LevelMeter::litSegments(float level) noexcept {
 }
 
 void LevelMeter::setPeaks(io::OutputPeaks peaks, juce::uint32 nowMs) {
-    shown_ = peaks;
-    hold(peaks.left, held_.left, heldSinceL_, nowMs);
-    hold(peaks.right, held_.right, heldSinceR_, nowMs);
+    // Rise at once, fall smoothly: a bar that drops to the next peak each frame flickers.
+    const float dt = lastMs_ == 0 ? 0.0f : static_cast<float>(nowMs - lastMs_) / 1000.0f;
+    lastMs_ = nowMs == 0 ? 1 : nowMs;
+    const float fall = std::pow(10.0f, -kFallDbPerSecond * dt / 20.0f);
+    shown_.left = std::max(peaks.left, shown_.left * fall);
+    shown_.right = std::max(peaks.right, shown_.right * fall);
+    hold(shown_.left, held_.left, heldSinceL_, nowMs);
+    hold(shown_.right, held_.right, heldSinceR_, nowMs);
     repaint();
 }
 

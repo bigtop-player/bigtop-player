@@ -80,7 +80,7 @@ Mp3Trim readMp3Trim(const juce::File& file) {
 
 }  // namespace
 
-bool isImportable(const juce::File& file) { return file.hasFileExtension("wav;flac;mp3"); }
+bool isImportable(const juce::File& file) { return file.hasFileExtension("wav;aif;aiff;flac;mp3;ogg"); }
 
 std::string hashFile(const juce::File& file) {
     juce::FileInputStream in(file);
@@ -106,7 +106,7 @@ juce::File chooseAudioTarget(const juce::File& audioDir, const juce::String& ste
     }
 }
 
-ImportResult convertToShowAudio(const juce::File& source, const juce::File& target) {
+ImportResult convertToShowAudio(const juce::File& source, const juce::File& target, const std::function<void(float)>& progress) {
     const auto tmp = target.withFileExtension(".flac.tmp");
     std::unique_ptr<juce::OutputStream> out;
     std::unique_ptr<juce::AudioFormatWriter> writer;
@@ -126,8 +126,11 @@ ImportResult convertToShowAudio(const juce::File& source, const juce::File& targ
     formats.registerFormat(new juce::WavAudioFormat, true);
     formats.registerFormat(new juce::FlacAudioFormat, false);
     formats.registerFormat(new juce::MP3AudioFormat, false);
+    formats.registerFormat(new juce::AiffAudioFormat, false);
+    formats.registerFormat(new juce::OggVorbisAudioFormat, false);
     const std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(source));
-    if (reader == nullptr) return fail("Not a readable WAV, FLAC or MP3 file: " + source.getFileName().toStdString());
+    if (reader == nullptr)
+        return fail("Not a readable WAV, AIFF, FLAC, MP3 or Ogg file: " + source.getFileName().toStdString());
     const double rate = reader->sampleRate;
     // Shrinks when an MP3 ends before JUCE's length estimate (see readMp3 below).
     juce::int64 inLen = reader->lengthInSamples;
@@ -192,6 +195,7 @@ ImportResult convertToShowAudio(const juce::File& source, const juce::File& targ
         return got;
     };
 
+    juce::uint32 lastReportMs = juce::Time::getMillisecondCounter();
     while (written < outLen()) {
         int n = static_cast<int>(std::min<juce::int64>(chunk, inLen - readPos));
         if (n > 0) {
@@ -237,6 +241,11 @@ ImportResult convertToShowAudio(const juce::File& source, const juce::File& targ
         if (toWrite > 0 && !writer->writeFromAudioSampleBuffer(outBuf, 0, toWrite))
             return fail("Cannot write " + tmp.getFullPathName().toStdString() + " (disk full?)");
         written += toWrite;
+        // At most every 100 ms: the UI only needs to see it move.
+        if (progress && juce::Time::getMillisecondCounter() - lastReportMs >= 100) {
+            lastReportMs = juce::Time::getMillisecondCounter();
+            progress(static_cast<float>(static_cast<double>(written) / static_cast<double>(std::max<juce::int64>(outLen(), 1))));
+        }
     }
 
     writer.reset();  // finishes the FLAC stream (header with length) and closes the file
@@ -249,6 +258,7 @@ ImportResult convertToShowAudio(const juce::File& source, const juce::File& targ
             return fail("The written file did not read back correctly (disk full?): " + tmp.getFullPathName().toStdString());
     }
     if (!tmp.moveFileTo(target)) return fail("Cannot rename to " + target.getFullPathName().toStdString());
+    if (progress) progress(1.0f);
     return {true, {}};
 }
 

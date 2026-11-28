@@ -28,6 +28,8 @@ std::optional<juce::File> AppSettings::lastShow() const {
     return dir;
 }
 
+juce::String AppSettings::lastShowPath() const { return load()->getStringAttribute("lastShow"); }
+
 void AppSettings::setLastShow(const juce::File& dir) {
     auto root = load();
     root->setAttribute("lastShow", dir.getFullPathName());

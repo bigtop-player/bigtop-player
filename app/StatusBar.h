@@ -35,7 +35,10 @@ public:
     ///        with no show (Settings); elsewhere they are hidden and leave a gap.
     /// @param artNet The Art-Net sender status: green "Art-Net: sending", grey
     ///        "Art-Net: idle", red "Art-Net: error"; the full text (the reason) is the tooltip.
-    void update(const ShowSession::Status& status, bool showOpen, ShowMode mode, const io::ArtNetStatus& artNet);
+    /// @param ontime The Ontime link: hidden when Off, grey "Ontime: checking", green "Ontime: connected", red "Ontime: error".
+    /// @param ontimeError The last Ontime error, shown as the light's tooltip.
+    void update(const ShowSession::Status& status, bool showOpen, ShowMode mode, const io::ArtNetStatus& artNet,
+                io::OntimeClient::State ontime = io::OntimeClient::State::Off, const juce::String& ontimeError = {});
 
     /// @brief Called when the settings button is pressed (only in Edit mode or with no show).
     std::function<void()> onSettings;
@@ -56,7 +59,7 @@ public:
 private:
     void layoutMiddle();
 
-    juce::Label audio_, artNet_, dropouts_, save_, showName_, message_;
+    juce::Label audio_, artNet_, ontime_, dropouts_, save_, showName_, message_;
     juce::TextButton clip_{"CLIP"};  // a light that a tap resets, as in a DAW
     LevelMeter meter_;               // next to CLIP: how close the output is to it
     juce::Rectangle<int> middle_;  // between the Art-Net light and the buttons

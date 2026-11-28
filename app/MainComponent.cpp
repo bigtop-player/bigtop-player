@@ -2,6 +2,9 @@
 // that drives the GO screen and the session.
 #include "MainComponent.h"
 
+#include "Confirm.h"
+#include "KeepAwake.h"
+
 namespace bigtop::app {
 
 namespace {
@@ -26,6 +29,9 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
       padEditor_(session_),
       pads_(session_) {
     setWantsKeyboardFocus(true);
+    // An Offline session (screenshots, tests) never touches the machine's power state.
+    keepAwake_ = offline == nullptr ? std::function<void(bool)>(setKeepAwake)
+                                    : (offline->keepAwake ? offline->keepAwake : std::function<void(bool)>([](bool) {}));
     addChildComponent(start_);
 
     runningView_.setViewedComponent(&running_, false);
@@ -43,6 +49,7 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
     pausedBanner_.setInterceptsMouseClicks(false, false);  // rows underneath stay usable (seek, faders, Fade)
     steps_.onEdit = [this](StepId id) { openEditor(id); };
     editor_.onClose = [this] { closeSide(); };
+    editor_.onDelete = [this](int index) { deleteAt(index); };
     settingsPanel_.onClose = [this] { closeSide(); };
     padEditor_.onClose = [this] { closeSide(); };
     pads_.onEditPad = [this](int index) { openPadEditor(index); };
@@ -64,9 +71,16 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
     for (juce::Component* c : {static_cast<juce::Component*>(&runningView_), static_cast<juce::Component*>(&steps_),
                                static_cast<juce::Component*>(&goButton_), static_cast<juce::Component*>(&fadeButton_)})
         addChildComponent(c);
+    // Last child, so it draws over the step list; a tap dismisses, the hint opens Show check.
+    alertBanner_.onDismiss = [this] { session_.dismissAlert(); refreshAlert(); };
+    alertBanner_.onShowCheck = [this] { openShowCheck(); };
+    showCheck_.onClose = [this] { showCheck_.setVisible(false); };
+    settingsPanel_.onShowCheck = [this] { openShowCheck(); };
     addChildComponent(pausedBanner_);   // after the running view so it draws over it; shown by timerCallback() while paused
     addChildComponent(modeBar_);
     addAndMakeVisible(status_);
+    addChildComponent(showCheck_);
+    addChildComponent(alertBanner_);  // last, so it draws over the step list
 
     modeBar_.onPick = [this](ShowMode mode) { pickMode(mode); };
     modeBar_.setDetails(steps_.details());  // remembered per laptop (AppSettings)
@@ -95,6 +109,8 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
         std::string error;
         std::vector<juce::File> backups;
         if (!session_.open(*last, error, &backups)) start_.showFailure(*last, error, std::move(backups));
+    } else if (const auto path = settings.lastShowPath(); path.isNotEmpty()) {
+        start_.showMissing(path);
     }
     showChanged();
     startTimerHz(kUiHz);
@@ -102,6 +118,7 @@ MainComponent::MainComponent(io::AppSettings& settings, juce::AudioDeviceManager
 }
 
 MainComponent::~MainComponent() {
+    if (awake_.value_or(false)) keepAwake_(false);
     stopTimer();
     flushState(true);  // a held Up/Down may not have been saved yet
     settingsWindow_.reset();  // it reports its final choice to the session
@@ -173,6 +190,7 @@ void MainComponent::chooseShow() {
     std::string error;
     if (!session_.quiet(error)) {
         session_.flash(juce::String(error));
+        session_.alert(AlertKind::Notice, juce::String(error));  // the status bar alone was too easy to miss
         refreshStatus();
         return;
     }
@@ -180,7 +198,13 @@ void MainComponent::chooseShow() {
     showChanged();
 }
 
+juce::String MainComponent::windowTitle() const {
+    const auto name = session_.status().showName;
+    return name.isEmpty() ? juce::String("Bigtop Player") : "Bigtop Player " + juce::String::fromUTF8("\xe2\x80\x93 ") + name;
+}
+
 void MainComponent::showChanged() {
+    if (auto* top = getTopLevelComponent(); top != nullptr && top != this) top->setName(windowTitle());
     const bool open = session_.isOpen() && !choosing_;
     start_.setVisible(!open);
     if (!open) {
@@ -212,15 +236,37 @@ void MainComponent::go() {
                                                      juce::String::fromUTF8(step->name.c_str()) + "\""
                                                : juce::String();
 
+    // Read before GO: the cue belongs to the step that runs now, not to the next one.
+    const auto cue = hasSound ? juce::String::fromUTF8(step->sound->ontimeCue.c_str()) : juce::String();
     switch (controller.go(uiSeconds())) {
         case GoResult::Ran:
             if (hasSound) running_.restarted(id);
+            session_.ontime().startCue(cue);  // queued; nothing waits for Ontime
             session_.stateChanged();
             break;
         case GoResult::IgnoredGuard: break;  // a double tap: the first one ran
-        case GoResult::MissingFile:
+        case GoResult::MissingFile: {
             session_.flash("GO refused: step " + label + " has no playable sound file");
+            // A stuck NEXT would stall the show: move it on, so the next GO plays.
+            const auto name = "'" + juce::String::fromUTF8(step->name.c_str()) + "'";
+            const auto playable = [this](const Step& s) {
+                return !s.sound || (!session_.importing(s.sound->file) && session_.sources().fileUsable(s.sound->file) &&
+                                     !session_.fileProblem(s.sound->file));
+            };
+            int to = index + 1;
+            while (to < static_cast<int>(stepsList.size()) && !playable(stepsList[static_cast<size_t>(to)])) ++to;
+            if (to < static_cast<int>(stepsList.size())) {
+                controller.selectNext(to);
+                session_.stateChanged();
+                session_.alert(AlertKind::MissingFile,
+                               "Step " + juce::String(index + 1) + " " + name +
+                                   juce::String::fromUTF8(" has no playable file \xe2\x80\x93 NEXT moved to step ") +
+                                   juce::String(to + 1));
+            } else {
+                session_.alert(AlertKind::MissingFile, "No playable step after " + name);
+            }
             break;
+        }
         case GoResult::EndOfList: session_.flash("End of the list: select a step to go on"); break;
         case GoResult::EngineBusy: session_.flash("Engine busy, press again"); break;
         case GoResult::Paused: session_.flash(juce::String::fromUTF8("Paused \xe2\x80\x93 press Resume")); break;
@@ -231,6 +277,7 @@ void MainComponent::go() {
 void MainComponent::fadeOut() {
     if (!session_.isOpen()) return;
     if (!session_.controller().fadeOutAll()) session_.flash("Engine busy, press again");
+    else if (session_.controller().show().settings.ontimeFollowTransport) session_.ontime().stop();
     refreshStatus();
 }
 
@@ -239,7 +286,9 @@ void MainComponent::togglePause() {
     if (!session_.isOpen() || !pauseAllowed(session_.mode(), session_.controller().show().settings.pauseInShow)) return;
     auto& controller = session_.controller();
     // The controller's own flag decides the direction, so a double tap cannot send two pauses.
-    if (!(controller.paused() ? controller.resume() : controller.pause())) session_.flash("Engine busy, press again");
+    const bool resuming = controller.paused();
+    if (!(resuming ? controller.resume() : controller.pause())) session_.flash("Engine busy, press again");
+    else if (controller.show().settings.ontimeFollowTransport) resuming ? session_.ontime().resume() : session_.ontime().pause();
     refreshStatus();
 }
 
@@ -266,12 +315,11 @@ bool MainComponent::keyPressed(const juce::KeyPress& key) {
         if (!pHeld_) togglePause();
         pHeld_ = true;
     } else if (key == juce::KeyPress::upKey) {
-        select(session_.controller().nextIndex() - 1);
+        arrow(-1);
     } else if (key == juce::KeyPress::downKey) {
-        select(session_.controller().nextIndex() + 1);
+        arrow(+1);
     } else if (key == juce::KeyPress::deleteKey) {
-        session_.deleteStep(session_.controller().nextIndex());  // refused in Show mode
-        refreshStatus();
+        deleteAt(session_.controller().nextIndex());
     } else {
         return false;
     }
@@ -283,7 +331,39 @@ bool MainComponent::keyStateChanged(bool) {
     return false;
 }
 
+void MainComponent::arrow(int delta) {
+    const auto now = uiMs();
+    if (arrowHeld_ && (now - arrowFirstMs_ < kRepeatDelayMs || now - arrowLastMs_ < kRepeatIntervalMs)) return;
+    if (!arrowHeld_) arrowFirstMs_ = now;
+    arrowHeld_ = true;
+    arrowLastMs_ = now;
+    select(session_.controller().nextIndex() + delta);
+}
+
+void MainComponent::deleteAt(int index) {
+    const auto& steps = session_.controller().show().steps;
+    if (index < 0 || index >= static_cast<int>(steps.size())) return;
+    const StepId id = steps[static_cast<size_t>(index)].id;
+    const auto snap = session_.snapshot();
+    const bool playing = std::any_of(snap.voices, snap.voices + snap.numVoices, [id](const VoiceState& v) { return v.key == id; });
+    if (playing && allowed(session_.mode(), Action::Delete)) {
+        // Deleting what is heard is easy to do by accident; the sound itself is never cut.
+        confirmAsync(this, "Step is playing. Delete it? The sound plays on.", "Delete", "Cancel", [this, id] {
+            const auto& now = session_.controller().show().steps;
+            const auto it = std::find_if(now.begin(), now.end(), [id](const Step& s) { return s.id == id; });
+            if (it != now.end()) session_.deleteStep(static_cast<int>(it - now.begin()));
+            refreshStatus();
+        });
+        return;
+    }
+    session_.deleteStep(index);  // refused in Show mode
+    refreshStatus();
+}
+
 void MainComponent::releaseKeys() {
+    if (arrowHeld_ && !juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::upKey) &&
+        !juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::downKey))
+        arrowHeld_ = false;
     if (spaceHeld_ && !juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey)) spaceHeld_ = false;
     if (escHeld_ && !juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::escapeKey)) escHeld_ = false;
     if (pHeld_ && !juce::KeyPress::isKeyCurrentlyDown('P')) pHeld_ = false;
@@ -338,6 +418,8 @@ void MainComponent::timerCallback() {
         if (auto* peer = getPeer(); peer != nullptr && peer->isFocused() && !hasKeyboardFocus(true))
             grabKeyboardFocus();
     }
+    refreshAlert();
+    if (showCheck_.isVisible()) showCheck_.setLines(session_.checkReport());
     const auto now = uiMs();
     if (now - lastTickMs_ >= kTickMs) {
         lastTickMs_ = now;
@@ -346,7 +428,39 @@ void MainComponent::timerCallback() {
     }
 }
 
+void MainComponent::openShowCheck() {
+    if (!session_.isOpen()) return;
+    session_.checkFilesNow();
+    showCheck_.setLines(session_.checkReport());
+    showCheck_.setVisible(true);
+    showCheck_.toFront(false);
+    alertBanner_.toFront(false);
+}
+
+bool MainComponent::quitRequested() {
+    if (!session_.isOpen() || session_.mode() != ShowMode::Show) return true;
+    confirmAsync(this, "Quit Bigtop Player during the show?", "Quit", "Cancel", [this] { onQuitConfirmed_(); });
+    return false;
+}
+
+void MainComponent::refreshKeepAwake() {
+    const bool want = session_.isOpen() && session_.mode() != ShowMode::Edit;
+    if (awake_ == want) return;
+    awake_ = want;
+    keepAwake_(want);
+}
+
+void MainComponent::refreshAlert() {
+    const auto a = session_.isOpen() ? session_.currentAlert() : std::nullopt;
+    if (a) {
+        const auto hint = a->more > 0 ? "+" + juce::String(a->more) + juce::String::fromUTF8(" more \xe2\x80\x93 Show check") : juce::String();
+        alertBanner_.show(a->text, hint, a->kind == AlertKind::Ontime || a->kind == AlertKind::Notice);
+    }
+    if (alertBanner_.isVisible() != a.has_value()) alertBanner_.setVisible(a.has_value());
+}
+
 void MainComponent::refreshStatus() {
+    refreshKeepAwake();
     if (session_.mode() != shownMode_) {
         shownMode_ = session_.mode();
         resized();  // Add fade step appears and disappears with the mode
@@ -361,7 +475,8 @@ void MainComponent::refreshStatus() {
         modeBar_.setVisible(session_.isOpen());
         resized();
     }
-    status_.update(session_.status(), session_.isOpen(), session_.mode(), session_.sender().status());
+    status_.update(session_.status(), session_.isOpen(), session_.mode(), session_.sender().status(),
+                   session_.isOpen() ? session_.ontime().state() : io::OntimeClient::State::Off, session_.ontime().lastError());
 }
 
 void MainComponent::resized() {
@@ -400,6 +515,8 @@ void MainComponent::resized() {
     goFrame_.setBounds(buttons.expanded(ModeFrame::kWidth));
     goFrame_.setColour(juce::Colour(modeColour(session_.mode())));
     steps_.setBounds(r);
+    showCheck_.setBounds(r);
+    alertBanner_.setBounds(r.withHeight(juce::jmin(AlertBanner::kHeight, r.getHeight())));
 }
 
 }  // namespace bigtop::app

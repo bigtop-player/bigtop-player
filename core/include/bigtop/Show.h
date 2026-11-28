@@ -190,8 +190,17 @@ struct Settings {
     double loudnessTargetLufs = -16.0;  ///< @brief Target loudness for normalisation, in LUFS.
     /// @brief Art-Net destination address (broadcast by default).
     std::string artnetTarget = "255.255.255.255";
-    std::string ontimeHost;  ///< @brief OnTime server host; empty = integration off.
-    int ontimePort = 4001;   ///< @brief OnTime server port.
+    std::string ontimeHost;  ///< @brief Ontime server host (IPv4 address or host name).
+    int ontimePort = 4001;   ///< @brief Ontime server port.
+    /// @brief True: GO sends the step's Ontime cue to the host above. An older
+    ///        show file without the key gets true when it names a host.
+    bool ontimeEnabled = false;
+    /// @brief True: Pause, Resume and Esc are sent to Ontime too (pause, start, stop).
+    bool ontimeFollowTransport = false;
+    /// @brief Level a dropped file's new step starts with, in dB: headroom by default,
+    ///        so a step can still be pushed louder. Older shows get the default too
+    ///        (it only affects steps created from then on).
+    double newStepLevelDb = -6.0;
     /// @brief Visible pad grid rows; kMinPadRows..kMaxPadRows, and padRows * padCols <= kMaxPads.
     int padRows = 4;
     int padCols = 2;  ///< @brief Visible pad grid columns; kMinPadCols..kMaxPadCols.

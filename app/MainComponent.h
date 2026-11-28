@@ -12,6 +12,8 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "AlertBanner.h"
+#include "ShowCheckPanel.h"
 #include "ModeBar.h"
 #include "ModeFrame.h"
 #include "PadEditor.h"
@@ -44,6 +46,16 @@ public:
 
     /// @brief Closes the settings window before the session goes.
     ~MainComponent() override;
+
+    /// @brief The window's close button or Alt+F4.
+    /// @return True when the app may quit now. In Show mode it returns false and
+    ///         asks "Quit Bigtop Player during the show?" (Cancel is the default);
+    ///         Quit then calls the quit handler (JUCEApplication::quit in the app).
+    bool quitRequested();
+
+    /// @brief The window title: "Bigtop Player – <show name>", or "Bigtop Player" with no show.
+    /// @return The title.
+    juce::String windowTitle() const;
 
     /// @brief Lays out the screen and the status bar (JUCE callback).
     void resized() override;
@@ -78,6 +90,9 @@ private:
     void releaseKeys();
     void showChanged();
     void refreshStatus();
+    void refreshAlert();
+    void refreshKeepAwake();  // awake in Rehearsal and Show mode, so a show is never interrupted by sleep
+    void openShowCheck();  // runs a file check now and shows every problem  // shows or hides the banner from ShowSession::currentAlert()
     void toggleSettings();
     void chooseShow();
     void pickMode(ShowMode mode);
@@ -101,6 +116,11 @@ private:
     ModeFrame goFrame_;  // behind GO, in the mode colour (added before GO)
     juce::TextButton goButton_{"GO (Space)"}, fadeButton_{"Fade out (Esc)"};
     juce::TextButton pauseButton_{"Pause (P)"};  // "Resume (P)" while paused; hidden in Show mode (Action::Pause)
+    std::function<void(bool)> keepAwake_;   // setKeepAwake, or the Offline stand-in
+    std::optional<bool> awake_;             // what keepAwake_ was last told; unset = never
+    std::function<void()> onQuitConfirmed_ = [] { if (auto* a = juce::JUCEApplicationBase::getInstance()) a->quit(); };
+    ShowCheckPanel showCheck_;                    // over the step list while open; see openShowCheck()
+    AlertBanner alertBanner_;                     // over the top of the step list; see ShowSession::alert
     juce::Label pausedBanner_{{}, "PAUSED"};      // over the running area while the snapshot says paused
     juce::TextButton addFadeButton_{"+ Fade"};  // Edit mode only (Action::EditStructure)
     ModeBar modeBar_;
@@ -109,7 +129,14 @@ private:
     std::unique_ptr<SettingsWindow> settingsWindow_;
     std::unique_ptr<SettingsWindow> closingWindow_;  // closed, waiting for its async delete
     juce::uint32 lastTickMs_ = 0;  // last session_.tick(), for the 4 Hz housekeeping
-    bool spaceHeld_ = false, escHeld_ = false, pHeld_ = false;  // pressed and not released yet: repeats ignored
+    bool spaceHeld_ = false, escHeld_ = false, pHeld_ = false;
+    // Held Up/Down: one row, then after kRepeatDelayMs one row per kRepeatIntervalMs at most,
+    // so a held key walks the list at a pace the eye can follow.
+    static constexpr juce::uint32 kRepeatDelayMs = 400, kRepeatIntervalMs = 125;
+    bool arrowHeld_ = false;
+    juce::uint32 arrowFirstMs_ = 0, arrowLastMs_ = 0;
+    void arrow(int delta);
+    void deleteAt(int index);  // asks first when the step is playing  // pressed and not released yet: repeats ignored
     // Up/Down repeat selects many steps a second; state.json is written at most
     // every kStateSaveMs while they do, and once when the keys are released.
     ShowMode shownMode_ = ShowMode::Edit;  // last mode the layout was made for

@@ -11,9 +11,10 @@ add_library(bigtop_app_lib STATIC
     MainComponent.cpp ShowSession.cpp StartPanel.cpp StatusBar.cpp LevelMeter.cpp SettingsWindow.cpp
     StepList.cpp RunningSounds.cpp ModeBar.cpp
     NumberField.cpp StepEditor.cpp ShowSettingsPanel.cpp PadGrid.cpp PadEditor.cpp Screenshots.cpp
-    DemoAudio.cpp Pointer.cpp UiClock.cpp)
+    DemoAudio.cpp Pointer.cpp UiClock.cpp AlertBanner.cpp ShowCheckPanel.cpp KeepAwake.cpp Confirm.cpp AboutPanel.cpp)
 target_include_directories(bigtop_app_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(bigtop_app_lib PUBLIC bigtop_io)
+target_compile_definitions(bigtop_app_lib PUBLIC BIGTOP_VERSION="${PROJECT_VERSION}${BIGTOP_VERSION_SUFFIX}")
 bigtop_warnings(bigtop_app_lib)
 
 juce_add_gui_app(bigtop_app PRODUCT_NAME "Bigtop Player")

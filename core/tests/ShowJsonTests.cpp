@@ -131,3 +131,23 @@ TEST_CASE("pad start/end round-trip, missing means the whole file") {
     trimmed.pads[0] = Pad{.name = "Bell", .file = 1, .levelDb = -3.0, .startSeconds = 1.5, .endSeconds = 4.0};
     CHECK(fromJson(toJson(trimmed)) == trimmed);
 }
+TEST_CASE("The Ontime switches survive a JSON round trip") {
+    Show show;
+    show.settings.ontimeHost = "192.0.2.10";
+    show.settings.ontimeEnabled = true;
+    show.settings.ontimeFollowTransport = true;
+    const Show back = fromJson(toJson(show));
+    CHECK(back.settings.ontimeEnabled);
+    CHECK(back.settings.ontimeFollowTransport);
+}
+TEST_CASE("An older show with an Ontime host loads with Ontime on, without one off") {
+    auto j = nlohmann::json::parse(toJson(Show{}));
+    j["settings"].erase("ontimeEnabled");
+    j["settings"].erase("ontimeFollowTransport");
+    j["settings"]["ontimeHost"] = "192.0.2.10";
+    const Show withHost = fromJson(j.dump());
+    CHECK(withHost.settings.ontimeEnabled);
+    CHECK_FALSE(withHost.settings.ontimeFollowTransport);
+    j["settings"]["ontimeHost"] = "";
+    CHECK_FALSE(fromJson(j.dump()).settings.ontimeEnabled);
+}

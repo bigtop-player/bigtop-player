@@ -184,3 +184,66 @@ TEST_CASE("timecode 00:00:10:30 refused at 25 fps, 00:00:10:12 accepted") {
 }
 
 }  // namespace bigtop::app
+
+namespace bigtop::app {
+namespace {
+juce::Component* findById(juce::Component& root, const juce::String& id) {
+    for (auto* child : root.getChildren()) {
+        if (child->getComponentID() == id) return child;
+        if (auto* found = findById(*child, id)) return found;
+    }
+    return nullptr;
+}
+// JUCE posts Enter as a message and then calls onReturnKey; calling it directly keeps the test synchronous.
+void typeAndReturn(juce::TextEditor& e, const juce::String& text) {
+    e.setText(text, false);
+    REQUIRE(e.onReturnKey != nullptr);
+    e.onReturnKey();
+}
+}  // namespace
+
+TEST_CASE("The Ontime cue field stores trimmed text and is Edit-only") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    AppTestAccess::openEditor(app.main(), 1);
+    app.tick();
+    auto* cue = dynamic_cast<juce::TextEditor*>(findById(AppTestAccess::editor(app.main()), "ontimeCue"));
+    REQUIRE(cue != nullptr);
+    typeAndReturn(*cue, "  OPEN 1 ");
+    CHECK(app.session().controller().show().steps[0].sound->ontimeCue == "OPEN 1");
+    AppTestAccess::pickMode(app.main(), ShowMode::Rehearsal);
+    app.tick();
+    cue = dynamic_cast<juce::TextEditor*>(findById(AppTestAccess::editor(app.main()), "ontimeCue"));
+    REQUIRE(cue != nullptr);
+    CHECK_FALSE(cue->isEnabled());
+}
+
+TEST_CASE("Show settings edit the Ontime switch, host and port; a junk host is refused") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    AppTestAccess::openShowSettings(app.main());
+    app.tick();
+    auto& panel = AppTestAccess::settingsPanel(app.main());
+    auto* on = dynamic_cast<juce::ToggleButton*>(findById(panel, "ontimeEnabled"));
+    auto* follow = dynamic_cast<juce::ToggleButton*>(findById(panel, "ontimeFollow"));
+    auto* host = dynamic_cast<juce::TextEditor*>(findById(panel, "ontimeHost"));
+    REQUIRE(on != nullptr);
+    REQUIRE(follow != nullptr);
+    REQUIRE(host != nullptr);
+    const auto& s = app.session().controller().show().settings;
+    CHECK_FALSE(on->getToggleState());
+    tap(*on, on->getLocalBounds().getCentre());
+    CHECK(s.ontimeEnabled);
+    tap(*follow, follow->getLocalBounds().getCentre());
+    CHECK(s.ontimeFollowTransport);
+    typeAndReturn(*host, "192.0.2.10");
+    CHECK(s.ontimeHost == "192.0.2.10");
+    typeAndReturn(*host, "ontime.example");
+    CHECK(s.ontimeHost == "ontime.example");
+    typeAndReturn(*host, "no spaces/allowed");
+    CHECK(s.ontimeHost == "ontime.example");
+    CHECK(app.session().status().message == "Not a host name or IPv4 address");
+    CHECK(s.ontimePort == 4001);
+}
+
+}  // namespace bigtop::app

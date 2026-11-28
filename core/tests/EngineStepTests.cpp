@@ -227,3 +227,26 @@ TEST_CASE("Fade out all reaches the old copy when it is the only sound left") {
     CHECK(out[50] == 0.0f);
     CHECK(e.snapshot().numVoices == 0);
 }
+// Hammering GO on a playing step must not fill the voice pool with fading
+// copies: a later GO of another step would be dropped mid-show.
+TEST_CASE("Restarting a playing step keeps at most one fading copy") {
+    Engine e(1000); ConstSource a(1000000, 0.01f), b(100000);
+    e.post(startCmd(1, a)); render(e, 64);
+    for (int i = 0; i < 40; ++i) {
+        auto c = startCmd(1, a); c.restartFrames = 10000; e.post(c); render(e, 64);
+    }
+    e.post(startCmd(2, b)); render(e, 64);
+    const auto snap = e.snapshot();
+    CHECK(snap.droppedStarts == 0);
+    CHECK(std::any_of(snap.voices, snap.voices + snap.numVoices, [](const auto& v) { return v.key == 2; }));
+}
+TEST_CASE("A third restart cuts the oldest fading copy over the declick, the newer one keeps fading") {
+    Engine e(1000); ConstSource a(100000);
+    e.post(startCmd(1, a)); render(e, 64);
+    auto c = startCmd(1, a); c.restartFrames = 10000;
+    e.post(c); render(e, 64);   // copy 1 fades over 10 s
+    e.post(c);                  // copy 2 starts fading, copy 1 is cut
+    auto out = render(e, 100);
+    CHECK(out[5] > out[50]);                                  // the cut is a ramp, not a jump
+    CHECK(out[50] == Approx(2.0f).margin(0.02f));             // new copy + one barely faded copy
+}

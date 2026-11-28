@@ -8,7 +8,7 @@ See "Build from source" in the [README](README.md). The app is built with `-DBIG
 
 ## Before you push
 
-The quality gate: a clean configure with everything on, a full build with zero warnings, all tests passing (including the `[stress]` thread test), and Doxygen without warnings, on Windows (MSVC) and on Linux (GCC, Clang, and the ThreadSanitizer build), as CI runs it. GCC and Clang warn about things MSVC does not, so a Windows-only gate is not enough.
+The quality gate: a clean configure with everything on, a full build with zero warnings, all tests passing (including the `[stress]` thread test), and Doxygen without warnings, on Windows (MSVC) and on Linux (GCC, Clang, and the ThreadSanitizer build), as CI runs it. GCC and Clang warn about things MSVC does not, so a Windows-only gate is not enough. macOS (ARM64) is supported too, but CI does not build it yet: when you change build files or platform code, check the build and the app's start-up on macOS by hand and say so in the pull request.
 
 Windows, from the repo root:
 
@@ -52,6 +52,7 @@ Run `doxygen Doxyfile` from the repo root; the HTML lands in `build/docs/index.h
 - One pull request is one feature or one fix. Bigger work is split into several pull requests.
 - Pull requests are squash-merged, so the pull request title becomes the commit title: [Conventional Commits](https://www.conventionalcommits.org/), `type(scope): summary`, imperative, at most 72 characters. Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`. The scope is optional (`engine`, `ui`, `io`, `pads`, ...).
 - The description says what changes for the person running a show and why, in plain words. `Fixes #<n>` closes an issue.
+- Maintainers label issues and pull requests (`bug`, `idea`, `question`, `documentation`, ...); the issue templates set the first label.
 
 ## AI tools
 
@@ -59,4 +60,4 @@ You may use AI coding tools. You are responsible for every line you submit: read
 
 ## How a pull request is merged
 
-Maintainers apply accepted pull requests in the upstream repository, where the full test matrix runs, and publish them here with you as the author (or co-author, when a maintainer changed it). Your pull request is then closed with a link to the commit.
+Maintainers apply accepted pull requests in the upstream repository, where the full test matrix runs, and publish them here with you as the author (or co-author, when a maintainer changed it). Your pull request is then closed with a link to the commit. Collaborators with access to the upstream repository open their pull request there instead; a maintainer reviews it and squash-merges it (Conventional Commits title, and an `Assisted-by:` line when an AI tool wrote non-trivial parts).

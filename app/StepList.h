@@ -152,6 +152,10 @@ public:
     static constexpr bool editHit(int x, int rowY, int width) noexcept {
         return rowY < kRowHeight && x >= width - 12 - kEditWidth;
     }
+    /// @brief Width of the Retry button a failed import shows left of Edit, in px.
+    static constexpr int kRetryWidth = 96;
+    /// @brief Left edge of the Retry button in a row. @param width The row's width. @return x in px.
+    static constexpr int retryX(int width) noexcept { return width - 12 - kEditWidth - 12 - kRetryWidth; }
 
     /// @brief Builds the list over a session.
     /// @param session Must outlive this; read only while it has a show open.
@@ -250,6 +254,8 @@ public:
     void mouseUp(const juce::MouseEvent& e) override;
 
 private:
+    bool nearList(juce::Point<int> p) const;  // within the list, give or take a row: a release there drops
+    bool retryShown(const Step& step, bool usable, bool importing, bool failed) const;  // Retry left of Edit on a red row
     /// App test hook (app/tests/AppTestSupport.h): Details rewording count, row offsets, the
     /// insertion line, the scroll timer.
     friend struct AppTestAccess;
@@ -298,6 +304,7 @@ private:
     Snapshot snap_{};
     int shownNext_ = -1;  // next index at the last refresh, to scroll only on change
     int dragFrom_ = -1;   // row whose handle is pressed, -1 = none
+    StepId dragStep_ = 0;  // the step on that row: rows can shift under a drag (an import finishing), the step cannot
     bool dragActive_ = false;  // that press has moved: the line shows and the timer runs
     int pressSource_ = 0;  // input source index of that press; others are ignored
     bool fileDrag_ = false;  // a file drag is over the list

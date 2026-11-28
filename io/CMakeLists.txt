@@ -40,7 +40,7 @@ if(WIN32)
 endif()
 
 # bigtop_io: our io code, on top of core, JUCE and r8brain.
-add_library(bigtop_io STATIC src/AudioOutput.cpp src/ShowFolder.cpp src/AppSettings.cpp src/Importer.cpp src/StreamingSource.cpp src/ArtNetSender.cpp src/ShowArchive.cpp src/Waveform.cpp)
+add_library(bigtop_io STATIC src/AudioOutput.cpp src/ShowFolder.cpp src/AppSettings.cpp src/Importer.cpp src/StreamingSource.cpp src/ArtNetSender.cpp src/ShowArchive.cpp src/Waveform.cpp src/OntimeClient.cpp)
 target_include_directories(bigtop_io PUBLIC include)
 target_link_libraries(bigtop_io PUBLIC bigtop_core bigtop_juce bigtop_r8brain)
 # GetAdaptersAddresses (real adapter names and prefix lengths) lives in iphlpapi.
@@ -50,7 +50,7 @@ endif()
 bigtop_warnings(bigtop_io)
 
 # Catch2 tests for io; each TEST_CASE is registered with CTest.
-add_executable(bigtop_io_tests tests/SmokeTests.cpp tests/ShowFolderTests.cpp tests/AppSettingsTests.cpp tests/ImporterTests.cpp tests/StreamingSourceTests.cpp tests/AudioOutputTests.cpp tests/ArtNetSenderTests.cpp tests/ShowArchiveTests.cpp tests/WaveformTests.cpp)
+add_executable(bigtop_io_tests tests/SmokeTests.cpp tests/ShowFolderTests.cpp tests/AppSettingsTests.cpp tests/ImporterTests.cpp tests/StreamingSourceTests.cpp tests/AudioOutputTests.cpp tests/ArtNetSenderTests.cpp tests/ShowArchiveTests.cpp tests/WaveformTests.cpp tests/OntimeClientTests.cpp)
 target_link_libraries(bigtop_io_tests PRIVATE bigtop_io Catch2::Catch2WithMain)
 bigtop_warnings(bigtop_io_tests)
 # Checked-in test inputs (e.g. the MP3 that needs an encoder to make).

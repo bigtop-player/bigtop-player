@@ -358,22 +358,25 @@ void StepEditor::rebuild(const juce::String& sig) {
     const Step& st = show.steps[static_cast<size_t>(index)];
 
     // Name and note.
-    const auto textRow = [&](const char* label, std::string Step::*member) {
+    const auto textRow = [&](const char* label, std::function<std::string&(Step&)> member, const char* id = "",
+                             const char* hint = "") {
         labelAt(label, 0, 70);
         auto& e = adopt(content_, owned_, std::make_unique<juce::TextEditor>());
         e.setBounds(72, y_, width - 72, kRow);
         e.setInputRestrictions(200);
+        e.setComponentID(id);
+        e.setTextToShowWhenEmpty(hint, juce::Colours::grey);
         e.setEnabled(structure);
         const auto pull = [this, &e, member](bool force) {
             const Step* s = step();
-            if (s != nullptr && (force || !e.hasKeyboardFocus(false))) e.setText(text(s->*member), false);
+            if (s != nullptr && (force || !e.hasKeyboardFocus(false))) e.setText(text(member(const_cast<Step&>(*s))), false);
         };
         const auto commit = [this, &e, member] {
-            const auto typed = e.getText().toStdString();
+            const auto typed = e.getText().trim().toStdString();  // stray spaces would never match an Ontime cue
             const Step* s = step();
-            if (s == nullptr || s->*member == typed) return;
+            if (s == nullptr || member(const_cast<Step&>(*s)) == typed) return;
             edit(Action::EditStructure, [&](Show&, Step& target) {
-                target.*member = typed;
+                member(target) = typed;
                 return true;
             });
         };
@@ -390,8 +393,11 @@ void StepEditor::rebuild(const juce::String& sig) {
         pull(true);
         y_ += kRow + kGap;
     };
-    textRow("Name", &Step::name);
-    textRow("Note", &Step::note);
+    textRow("Name", [](Step& s) -> std::string& { return s.name; });
+    textRow("Note", [](Step& s) -> std::string& { return s.note; });
+    if (st.sound)
+        textRow("Ontime", [](Step& s) -> std::string& { return s.sound->ontimeCue; }, "ontimeCue",
+                "cue, as in Ontime's Cue column");
 
     // The sound.
     if (st.sound) {
@@ -603,7 +609,10 @@ void StepEditor::rebuild(const juce::String& sig) {
     del.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff7a2b2b));
     del.setEnabled(allowed(mode, Action::Delete));
     del.setWantsKeyboardFocus(false);
-    del.onClick = [this] { session_.deleteStep(stepIndex()); };  // refresh() sees it gone and closes
+    del.onClick = [this] {
+        if (onDelete) onDelete(stepIndex());
+        else session_.deleteStep(stepIndex());
+    };  // refresh() sees it gone and closes
     y_ += kRow + kGap;
 
     content_.setSize(width, y_);

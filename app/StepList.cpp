@@ -240,7 +240,8 @@ void StepList::layoutRows() {
             if (!steps[i].sound || details_[i].empty()) continue;  // a sound step has its sound line first
             // Red exactly when the row says "missing file" / "import failed" (not while importing).
             const bool missing =
-                    !session_.importing(steps[i].sound->file) && !session_.sources().fileUsable(steps[i].sound->file);
+                    !session_.importing(steps[i].sound->file) &&
+                    (!session_.sources().fileUsable(steps[i].sound->file) || session_.fileProblem(steps[i].sound->file));
             details_[i][0].missingFile = unknownFile_[i] || missing;
         }
     }
@@ -354,6 +355,15 @@ void StepList::paintRow(int row, juce::Graphics& g, int width, int height) {
         g.drawText("Edit", button, juce::Justification::centred);
         g.setColour(textColour);
         r.removeFromRight(12);
+        if (retryShown(step, usable, importing, failed)) {
+            const auto retry = r.removeFromRight(kRetryWidth).reduced(0, 4);
+            g.setColour(kRed);
+            g.fillRoundedRectangle(retry.toFloat(), 6.0f);
+            g.setColour(juce::Colours::white);
+            g.drawText("Retry", retry, juce::Justification::centred);
+            g.setColour(textColour);
+            r.removeFromRight(12);
+        }
     }
     g.drawText(juce::String(row + 1), r.removeFromLeft(48), juce::Justification::centredLeft);
     const auto linesArea = r;  // under the name and the state, left of the Edit button
@@ -367,7 +377,20 @@ void StepList::paintRow(int row, juce::Graphics& g, int width, int height) {
         case StepRowState::Starting: text = juce::String::fromUTF8("starting\xe2\x80\xa6"); break;
         case StepRowState::Playing: text = "playing"; break;
         case StepRowState::Done: text = "done"; break;
-        case StepRowState::Importing: text = juce::String::fromUTF8("importing\xe2\x80\xa6"); break;
+        case StepRowState::Importing:
+            if (const auto p = session_.importProgress(step.sound->file)) {
+                // A bar under the text: a long WAV can take a while, and a moving bar says it is working.
+                const auto bar = stateArea.withTrimmedLeft(stateArea.getWidth() / 2).withHeight(6).withY(stateArea.getBottom() - 10);
+                g.setColour(textColour.withAlpha(0.25f));
+                g.fillRect(bar);
+                g.setColour(juce::Colour(0xff4a9eff));
+                g.fillRect(bar.withWidth(juce::roundToInt(static_cast<float>(bar.getWidth()) * *p)));
+                g.setColour(textColour);
+                text = "importing " + juce::String(juce::roundToInt(*p * 100.0f)) + "%";
+            } else {
+                text = juce::String::fromUTF8("importing\xe2\x80\xa6");
+            }
+            break;
         case StepRowState::MissingFile:
             text = failed ? "import failed" : "missing file";  // the reason is the row's tooltip
             g.setColour(kRed);
@@ -389,12 +412,24 @@ void StepList::paintRow(int row, juce::Graphics& g, int width, int height) {
     }
 }
 
+bool StepList::retryShown(const Step& step, bool usable, bool importing, bool failed) const {
+    // Only Edit mode changes files, and only a red row with a kept original can be helped.
+    return step.sound && !importing && (failed || !usable) && allowed(session_.mode(), Action::EditStructure) &&
+           session_.canRetry(step.sound->file);
+}
+
 void StepList::tapped(int row, int x, int contentY) {
     const auto& steps = session_.controller().show().steps;
     if (row < 0 || row >= static_cast<int>(steps.size())) return;
     if (handleShown() && x < kHandleWidth) return;  // the handle only drags
     const int rowY = contentY - tops_[static_cast<size_t>(row)];
-    if (allowed(session_.mode(), Action::EditValue) && editHit(x, rowY, rows_->getWidth())) {
+    const Step& step = steps[static_cast<size_t>(row)];
+    const int width = rows_->getWidth();
+    if (step.sound && rowY < kRowHeight && x >= retryX(width) && x < retryX(width) + kRetryWidth &&
+        retryShown(step, session_.sources().fileUsable(step.sound->file), session_.importing(step.sound->file),
+                   session_.importError(step.sound->file).isNotEmpty())) {
+        session_.retryImport(step.sound->file);
+    } else if (allowed(session_.mode(), Action::EditValue) && editHit(x, rowY, width)) {
         if (onEdit) onEdit(steps[static_cast<size_t>(row)].id);  // never touches NEXT
     } else if (onSelect) {
         onSelect(row);
@@ -414,7 +449,8 @@ juce::String StepList::rowTitle(int row) const {
     juce::String title = juce::String(row + 1) + ", " + juce::String::fromUTF8(step.name.c_str());
     if (row == session_.controller().nextIndex()) title << ", next";
     // The words the row shows in red (stepRowState's missing file, not while importing).
-    if (step.sound && !session_.importing(step.sound->file) && !session_.sources().fileUsable(step.sound->file))
+    if (step.sound && !session_.importing(step.sound->file) &&
+        (!session_.sources().fileUsable(step.sound->file) || session_.fileProblem(step.sound->file)))
         title << (session_.importError(step.sound->file).isNotEmpty() ? ", import failed" : ", missing file");
     for (const DetailLine& line : details_[static_cast<size_t>(row)])
         if (!line.text.empty()) title << ", " << juce::String::fromUTF8(line.text.c_str());  // a reserved blank line says nothing
@@ -504,6 +540,7 @@ void StepList::mouseDown(const juce::MouseEvent& e) {
     const int row = rowAt(e.y, tops_);
     if (row < 0) return;
     dragFrom_ = row;
+    dragStep_ = session_.controller().show().steps[static_cast<size_t>(row)].id;
     dragActive_ = false;  // armed only by real movement, so a held tap never scrolls or reorders
     pressSource_ = pointerIndex(e);
     // The Viewport turns a touch drag into scrolling unless the pressed component says not to.
@@ -525,7 +562,19 @@ void StepList::mouseDrag(const juce::MouseEvent& e) {
         }
         return;
     }
+    // Well outside the list a release cancels, so the line must not promise a drop there.
+    if (!nearList(e.getEventRelativeTo(&view_).getPosition())) {
+        if (gap_ != -1) {
+            gap_ = -1;
+            repaint();
+        }
+        return;
+    }
     dragTo(e.getEventRelativeTo(&view_).getPosition().y);
+}
+
+bool StepList::nearList(juce::Point<int> p) const {
+    return p.x >= 0 && p.x <= view_.getWidth() && p.y >= -kRowHeight && p.y <= view_.getHeight() + kRowHeight;
 }
 
 void StepList::mouseExit(const juce::MouseEvent& e) {
@@ -545,18 +594,19 @@ void StepList::mouseUp(const juce::MouseEvent& e) {
         if (!e.mouseWasDraggedSinceMouseDown() && session_.isOpen()) tapped(rowAt(e.y, tops_), e.x, e.y);
         return;
     }
-    const int from = dragFrom_;
+    const auto& steps = session_.controller().show().steps;
+    const auto it = std::find_if(steps.begin(), steps.end(), [this](const Step& s) { return s.id == dragStep_; });
+    const int from = static_cast<int>(it - steps.begin());
     const int gap = gap_;
     const bool active = dragActive_;
     cancelDrag();
-    if (!active || from >= numRows()) return;  // never armed, or the list changed meanwhile
+    if (!active || it == steps.end()) return;  // never armed, or the carried step is gone
     // Dropped on a pad: the pad takes the step's sound, the list stays as it is.
     if (onDropOutside && onDropOutside(session_.controller().show().steps[static_cast<size_t>(from)].id, e.getScreenPosition()))
         return;
     if (gap < 0) return;
     // Released well outside the list: cancel rather than throw the row to the top or end.
-    const auto p = e.getEventRelativeTo(&view_).getPosition();
-    if (p.x < 0 || p.x > view_.getWidth() || p.y < -kRowHeight || p.y > view_.getHeight() + kRowHeight) return;
+    if (!nearList(e.getEventRelativeTo(&view_).getPosition())) return;
     // NEXT follows its step by id inside the session's commit; nothing here calls onSelect.
     session_.moveStep(from, movedIndex(from, gap));
 }

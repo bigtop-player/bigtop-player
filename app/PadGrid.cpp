@@ -9,6 +9,17 @@
 
 namespace bigtop::app {
 
+PadTime padTime(int64_t fileFrames, double startSeconds, std::optional<double> endSeconds, int64_t position) {
+    const int64_t start = std::clamp<int64_t>(secondsToFrames(startSeconds, io::kEngineSampleRate), 0, fileFrames);
+    const int64_t end = endSeconds ? std::clamp<int64_t>(secondsToFrames(*endSeconds, io::kEngineSampleRate), start, fileFrames)
+                                   : fileFrames;
+    PadTime t;
+    t.remainingFrames = std::max<int64_t>(0, end - position);
+    if (end > start)
+        t.progress = std::clamp(static_cast<float>(position - start) / static_cast<float>(end - start), 0.0f, 1.0f);
+    return t;
+}
+
 namespace {
 constexpr int kHeaderHeight = 48;
 const juce::Colour kIdle(0xff34506f);
@@ -146,17 +157,21 @@ void PadGrid::paintCells(juce::Graphics& g) {
         if (assigned) {
             const FileId file = *pad->file;
             if (session_.importing(file)) {
-                status = juce::String::fromUTF8("importing\xe2\x80\xa6");
-            } else if (!session_.sources().fileUsable(file)) {
+                const auto p = session_.importProgress(file);
+                status = p ? "importing " + juce::String(juce::roundToInt(*p * 100.0f)) + "%"
+                           : juce::String::fromUTF8("importing\xe2\x80\xa6");
+                if (p) progress = *p;  // the progress line along the bottom, as for a playing pad
+            } else if (!session_.sources().fileUsable(file) || session_.fileProblem(file)) {
                 status = session_.importError(file).isNotEmpty() ? "import failed" : "missing file";
                 statusColour = kRed;
             } else if (voice != nullptr) {
-                const int64_t len = session_.sources().fileLengthFrames(file);
-                const MinSec t = splitTime(len - voice->positionFrame);
+                const auto pt = padTime(session_.sources().fileLengthFrames(file), pad->startSeconds, pad->endSeconds,
+                                        voice->positionFrame);
+                const MinSec t = splitTime(pt.remainingFrames);
                 status = juce::String::fromUTF8("\xe2\x88\x92") + juce::String(t.minutes) + ":" +
                          juce::String(t.seconds).paddedLeft('0', 2);
                 statusColour = juce::Colours::white;
-                if (len > 0) progress = std::clamp(static_cast<float>(voice->positionFrame) / static_cast<float>(len), 0.0f, 1.0f);
+                progress = pt.progress;
             }
         }
 

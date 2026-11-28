@@ -30,6 +30,7 @@
 #include "bigtop/ShowController.h"
 #include "bigtop/io/AppSettings.h"
 #include "bigtop/io/ArtNetSender.h"
+#include "bigtop/io/OntimeClient.h"
 #include "bigtop/io/AudioOutput.h"
 #include "bigtop/io/Importer.h"
 #include "bigtop/io/ShowArchive.h"
@@ -40,6 +41,21 @@
 #include "UiClock.h"
 
 namespace bigtop::app {
+
+/// @brief What a serious problem is about; decides the banner's colour and how long it stays.
+enum class AlertKind {
+    MissingFile,   ///< @brief A step's or pad's file is missing or changed.
+    ImportFailed,  ///< @brief An import could not be converted.
+    DeviceLost,    ///< @brief The chosen audio device is gone; stays while it is.
+    Ontime,        ///< @brief Ontime did not answer; playback is not affected.
+    Notice,        ///< @brief An action was refused; says why (amber).
+};
+
+/// @brief The status line while a drop imports.
+/// @param done Files of this batch already converted.
+/// @param total Files of this batch.
+/// @return "Importing 3 of 10" (the one being converted counts), empty when nothing is left.
+juce::String importStatusText(int done, int total);
 
 /// @brief The open show and the audio path that plays it.
 /// @note Message thread only (all members). Not copyable.
@@ -66,8 +82,34 @@ public:
     /// @brief The notice when Show mode is refused because the sounds are paused (UTF-8).
     static constexpr const char* kShowRefusedPaused = "Resume or press Esc first \xe2\x80\x93 Show mode has no Pause";
 
+    /// @brief How long an alert stays on screen when not tapped away, in ms.
+    static constexpr juce::uint32 kAlertMs = 8000;
+
+    /// @brief The banner's content; see currentAlert().
+    struct Alert {
+        AlertKind kind = AlertKind::MissingFile;  ///< @brief Kind of the newest problem.
+        juce::String text;                        ///< @brief Text of the newest problem.
+        int more = 0;                             ///< @brief Other problems still on screen.
+        bool sticky = false;                      ///< @brief The newest one stays until its cause is gone (device lost).
+    };
+
     /// @brief How long a flash() message stays in the status bar, in ms.
     static constexpr juce::uint32 kFlashMs = 3000;
+
+    /// @brief What a file check found for one file.
+    struct FileState {
+        bool exists = false;     ///< @brief The file is there.
+        juce::int64 size = -1;   ///< @brief Its size in bytes; -1 when missing.
+    };
+
+    /// @brief How often the show's files are checked while a show is open, in ms.
+    static constexpr juce::uint32 kFileCheckMs = 10000;
+
+    /// @brief Stats each file (exists and size); reads no audio.
+    /// @param files The files to look at.
+    /// @return One state per file, in order.
+    /// @note Any thread; the session calls it on its check thread.
+    static std::vector<FileState> statFiles(const std::vector<juce::File>& files);
 
     /// @brief Stand-ins that keep a session off the machine: used only by the screenshot mode and the app tests.
     struct Offline {
@@ -75,6 +117,9 @@ public:
         juce::String savedTime;                ///< @brief Non-empty: the status bar says "Saved <this>" instead of the clock, so re-rendered images do not change.
         std::function<io::OutputPeaks()> outputPeaks;  ///< @brief Set: read instead of the output's peaks (as gainReductionDb).
         std::function<float()> gainReductionDb;  ///< @brief Set: read instead of the output limiter's gain reduction (the tests drive the engine directly, so the limiter never sees audio).
+        std::function<std::unique_ptr<io::HttpGet>()> http;  ///< @brief Set: makes Ontime's HTTP stand-in; unset in an Offline session: Ontime requests get no answer (nothing leaves the machine).
+        std::function<void(bool)> keepAwake;  ///< @brief Called instead of setKeepAwake() (tests record it; an Offline session never touches the machine's power state).
+        std::function<std::vector<FileState>(const std::vector<juce::File>&)> checkFiles;  ///< @brief Set: called instead of statFiles() on the check thread (tests hold it to act as a slow disk).
     };
 
     /// @brief Opens the audio device and starts the disk-read thread; no show yet.
@@ -137,6 +182,10 @@ public:
     /// @return The folder, or an empty File while no show is open.
     juce::File showDir() const;
 
+    /// @brief Where the Open and New choosers start: the folder that holds the last show.
+    /// @return Its parent folder when it still exists, else the user's documents folder.
+    juce::File browseStart() const;
+
     /// @brief Whether a show is open.
     /// @return True after a successful open(), createNew() or restoreBackupAndOpen().
     bool isOpen() const noexcept;
@@ -190,6 +239,10 @@ public:
     /// @note Configured from the show's target and frame rate and the app
     ///       settings' adapter on open and after every commit that changes them.
     io::ArtNetSender& sender() noexcept { return *sender_; }
+
+    /// @brief The Ontime link; configured from the show's settings on open and on every edit.
+    /// @return The client (off unless the show enables Ontime).
+    io::OntimeClient& ontime() noexcept { return *ontime_; }
 
     /// @brief Chooses the network adapter Art-Net goes out of and applies it at once.
     /// @param address Adapter IPv4 address, or "" for Default. Stored in the app
@@ -290,6 +343,14 @@ public:
     /// @return True while importing(file) is true for some file.
     bool importsRunning() const { return !importing_.empty(); }
 
+    /// @brief How far a file's conversion is.
+    /// @param file Id of the file.
+    /// @return 0..1 while it converts and has reported; nothing otherwise.
+    std::optional<float> importProgress(FileId file) const {
+        const auto it = importProgress_.find(file);
+        return it != importProgress_.end() ? std::optional<float>(it->second) : std::nullopt;
+    }
+
     /// @brief Why a file's import failed in this session.
     /// @param file AudioFile::id.
     /// @return The error, or empty (none, or failed before this launch).
@@ -327,6 +388,59 @@ public:
     ///        nothing may block the operator during a show).
     /// @param text The notice; replaces any notice still showing.
     void flash(const juce::String& text);
+
+    /// @brief Raises a serious problem in the banner: the newest replaces the
+    ///        text, the others are counted until they expire (kAlertMs) or are
+    ///        dismissed. A text already on screen is not added twice.
+    /// @param kind What it is about.
+    /// @param text One line naming the step or pad.
+    /// @note Message thread.
+    void alert(AlertKind kind, const juce::String& text);
+
+    /// @brief What the banner shows now.
+    /// @return The newest live problem, or nothing.
+    /// @note Message thread.
+    std::optional<Alert> currentAlert() const;
+
+    /// @brief The banner was tapped: every problem but a sticky one goes.
+    /// @note Message thread.
+    void dismissAlert();
+
+    /// @brief Starts a check of the show's files at once, unless one is running.
+    /// @note Also run every kFileCheckMs by tick(). A file that is gone or whose
+    ///       size changed since the first check (or since its import finished)
+    ///       is flagged, its step or pad turns red and the banner names it.
+    ///       Message thread; the stat runs on its own thread.
+    void checkFilesNow();
+
+    /// @brief Everything wrong with the show right now, for Show check.
+    /// @return One line per problem, in this order: missing or changed files
+    ///         ("Step 3 'Intro': file missing", "Pad 2 'Horn': file missing"),
+    ///         failed imports ("Step 5 'Atmo': import failed: <reason>"),
+    ///         unfinished imports, then audio, then Art-Net; empty = all clear.
+    /// @note Message thread.
+    std::vector<juce::String> checkReport() const;
+
+    /// @brief Whether a file check is running. @return True from checkFilesNow() until its result arrived.
+    bool fileCheckRunning() const noexcept { return checkRunning_; }
+
+    /// @brief Whether the last file check flagged this file.
+    /// @param file Id of the file.
+    /// @return True when it was missing or its size had changed.
+    bool fileProblem(FileId file) const { return fileProblems_.count(file) != 0; }
+
+    /// @brief Converts a file again from the original kept in the show folder
+    ///        (a failed or unfinished import; the row's Retry button).
+    /// @param file Id of the file.
+    /// @return True when the conversion was queued; false (with a notice) when no
+    ///         original is kept, it is gone, or the mode does not allow it.
+    /// @note Edit mode only. Message thread.
+    bool retryImport(FileId file);
+
+    /// @brief Whether Retry can help this file: an original is recorded for it.
+    /// @param file Id of the file.
+    /// @return True when the show names a kept original (it may still be gone; retryImport() checks).
+    bool canRetry(FileId file) const;
 
     /// @brief The open show's audio provider (to show unplayable steps red).
     /// @return The provider.
@@ -376,6 +490,7 @@ private:
     std::unique_ptr<Engine> engine_;
     // Declared right after the engine and destroyed before it: its thread reads engine snapshots.
     std::unique_ptr<io::ArtNetSender> sender_;
+    std::unique_ptr<io::OntimeClient> ontime_;
     juce::String fixedSavedTime_;  // Offline only: a fixed "Saved" time for repeatable screenshots
     std::optional<std::vector<io::NetAdapter>> fakeAdapters_;  // set only for an Offline session
     juce::String senderConfig_;  // last configure() arguments, so an unrelated edit does not rebind the socket
@@ -407,6 +522,21 @@ private:
     // Import results arrive by callAsync; they act only while this token is the
     // one they captured. It is replaced when another show opens and dies with
     // the session, so a late result for an old show (or after quit) does nothing.
+    struct AlertEntry {
+        AlertKind kind;
+        juce::String text;
+        juce::uint32 ms;
+    };
+    std::vector<AlertEntry> alerts_;  // oldest first
+    std::map<FileId, float> importProgress_;  // 0..1 per converting file, from the import thread via callAsync
+    int importsTotal_ = 0;                    // files of the running batch; back to 0 when it is done
+    void filesChecked(const std::vector<FileId>& ids, const std::vector<FileState>& states);
+    juce::String fileUser(FileId file) const;  // "Step 2 'Song A'" or "Pad 3 'Horn'": the first that plays it
+    std::function<std::vector<FileState>(const std::vector<juce::File>&)> fakeCheckFiles_;  // Offline only
+    std::map<FileId, juce::int64> fileSizes_;  // baseline per file, from the first check that saw it
+    std::map<FileId, bool> fileProblems_;  // flagged files; true = size changed, false = missing
+    bool checkRunning_ = false;
+    juce::uint32 lastCheckMs_ = 0;
     std::shared_ptr<int> importToken_ = std::make_shared<int>(0);
     std::set<FileId> importing_;                 // queued or converting, for the current show
     std::map<FileId, std::string> importErrors_;  // per file, so every step using it shows it
@@ -425,6 +555,7 @@ private:
     // Hashing has its own thread so a drop's steps appear within seconds even
     // while earlier conversions run.
     juce::ThreadPool hashPool_{juce::ThreadPoolOptions{}.withThreadName("Bigtop hash").withNumberOfThreads(1)};
+    juce::ThreadPool checkPool_{juce::ThreadPoolOptions{}.withThreadName("Bigtop check").withNumberOfThreads(1)};
     juce::ThreadPool importPool_{juce::ThreadPoolOptions{}.withThreadName("Bigtop import").withNumberOfThreads(1)};
     // Waveform reads get their own low-priority thread: a show's worth of files must never
     // delay an import, and the disk-read thread (tails) and GO never wait for it.

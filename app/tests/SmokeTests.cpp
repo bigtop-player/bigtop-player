@@ -2,6 +2,7 @@
 // seams) and one GO through the whole windowless app.
 #include <catch2/catch_test_macros.hpp>
 
+#include "AboutPanel.h"
 #include "AppTestSupport.h"
 #include "Pointer.h"
 #include "UiClock.h"
@@ -76,3 +77,12 @@ TEST_CASE("finger index comes from PointerOverride") {
 }
 
 }  // namespace bigtop::app
+
+TEST_CASE("About names the build's version, the licence and the project page") {
+    bigtop::app::AboutPanel about;
+    const auto text = about.text();
+    CHECK(text.contains(juce::String("Version ") + BIGTOP_VERSION));
+    CHECK(text.contains("GNU Affero General Public License v3"));
+    CHECK(text.contains("https://github.com/bigtop-player/bigtop-player"));
+    CHECK(juce::String(BIGTOP_VERSION).startsWith("0.2.0"));
+}

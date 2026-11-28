@@ -47,6 +47,8 @@ public:
 
     /// @brief Called when the panel wants to go away: Close was tapped, the step was deleted.
     std::function<void()> onClose;
+    /// @brief "Delete step" was tapped; the owner deletes (asking first while it plays). Gets the step's index.
+    std::function<void(int)> onDelete;
 
     /// @brief Paints the panel background (JUCE callback).
     /// @param g Graphics context.

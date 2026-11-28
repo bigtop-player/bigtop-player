@@ -34,17 +34,17 @@ StartPanel::StartPanel(ShowSession& session, std::function<void()> onOpened)
     restore_.onClick = [this] {
         std::string error;
         if (session_.restoreBackupAndOpen(failedDir_, backup_, error))
-            onOpened_();
+            opened();
         else
             showFailure(failedDir_, error, {});
     };
-    back_.onClick = [this] { onOpened_(); };
+    back_.onClick = [this] { opened(); };
     export_.onClick = [this] {
         // Outside Edit the panel cannot be reached, but ask the table anyway (one source of truth).
         if (!session_.isOpen() || !session_.allowed(Action::SwitchShow)) return;
         // A file still converting has no FLAC yet: the zip would miss it.
         if (session_.importsRunning()) return note("Wait until the imports have finished, then export.", true);
-        chooser_ = std::make_unique<juce::FileChooser>("Choose the folder for the exported zip",
+        chooser_ = std::make_unique<juce::FileChooser>("Choose the folder for the exported ZIP",
                                                        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
                               [this](const juce::FileChooser& fc) {
@@ -54,7 +54,7 @@ StartPanel::StartPanel(ShowSession& session, std::function<void()> onOpened)
     import_.onClick = [this] {
         if (session_.isOpen() && !session_.allowed(Action::SwitchShow)) return;
         chooser_ = std::make_unique<juce::FileChooser>(
-            "Choose the show zip (.bigtop.zip)", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.zip");
+            "Choose the show ZIP (.bigtop.zip)", juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.zip");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                               [this](const juce::FileChooser& fc) {
                                   const auto zip = fc.getResult();
@@ -84,8 +84,9 @@ void StartPanel::visibilityChanged() {
 }
 
 void StartPanel::choose(bool createNew) {
-    const auto title = createNew ? "Choose an empty folder for the new show" : "Choose a show folder (with show.json)";
-    chooser_ = std::make_unique<juce::FileChooser>(title, juce::File::getSpecialLocation(juce::File::userDocumentsDirectory));
+    // A show is a folder, not a file: the titles say so (show files travel as zips through Export / Import).
+    const auto title = createNew ? "Choose an empty folder for the new show" : "Choose the show folder";
+    chooser_ = std::make_unique<juce::FileChooser>(title, session_.browseStart());
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
                           [this, createNew](const juce::FileChooser& fc) {
                               const auto dir = fc.getResult();
@@ -93,7 +94,7 @@ void StartPanel::choose(bool createNew) {
                               if (!createNew) return tryOpen(dir);
                               std::string error;
                               if (session_.createNew(dir, error))
-                                  onOpened_();
+                                  opened();
                               else
                                   showFailure(dir, error, {});
                           });
@@ -103,7 +104,7 @@ void StartPanel::tryOpen(const juce::File& dir) {
     std::string error;
     std::vector<juce::File> backups;
     if (session_.open(dir, error, &backups))
-        onOpened_();
+        opened();
     else
         showFailure(dir, error, std::move(backups));
 }
@@ -134,7 +135,7 @@ void StartPanel::exportTo(const juce::File& folder) {
             if (r.omitted.empty()) return self->note("Exported: " + zip.getFullPathName(), false);
             juce::StringArray names;
             for (const auto& p : r.omitted) names.add(juce::String::fromUTF8(p.c_str()));
-            self->note("Exported, but " + juce::String(static_cast<int>(r.omitted.size())) + " audio file(s) are missing and not in the zip: " +
+            self->note("Exported, but " + juce::String(static_cast<int>(r.omitted.size())) + " audio file(s) are missing and not in the ZIP: " +
                            names.joinIntoString(", "),
                        true);
         });
@@ -154,11 +155,22 @@ void StartPanel::importFrom(const juce::File& zip, const juce::File& emptyDir) {
             // Opening also starts the conversion of the FLACs the zip left out.
             std::string error;
             if (self->session_.open(emptyDir, error, nullptr))
-                self->onOpened_();
+                self->opened();
             else
                 self->note("Unpacked to " + emptyDir.getFullPathName() + ", but it did not open: " + juce::String(error), true);
         });
     });
+}
+
+void StartPanel::opened() {
+    error_.setText({}, juce::dontSendNotification);
+    restore_.setVisible(false);
+    failedDir_ = juce::File();
+    onOpened_();
+}
+
+void StartPanel::showMissing(const juce::String& path) {
+    note("'" + juce::File(path).getFileName() + "' was not found at " + path, true);
 }
 
 void StartPanel::showFailure(const juce::File& dir, const std::string& error, std::vector<juce::File> backups) {

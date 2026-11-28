@@ -66,3 +66,15 @@ TEST_CASE("AppSettings remembers the step list's Details choice, off by default"
     CHECK_FALSE(AppSettings(file).stepDetails());
     file.deleteFile();
 }
+TEST_CASE("The stored last-show path is kept when the folder is gone") {
+    const auto dir = juce::File::createTempFile("bigtop-settings");
+    REQUIRE(dir.createDirectory());
+    const auto show = dir.getChildFile("Winter gala");
+    REQUIRE(show.createDirectory());
+    bigtop::io::AppSettings s(dir.getChildFile("settings.xml"));
+    s.setLastShow(show);
+    REQUIRE(show.deleteRecursively());
+    CHECK_FALSE(s.lastShow().has_value());
+    CHECK(s.lastShowPath() == show.getFullPathName());
+    dir.deleteRecursively();
+}

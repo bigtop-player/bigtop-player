@@ -95,7 +95,9 @@ struct ChangeSpec {
 ///       (2) the others rule on step voices (key < kPadKeyBase) not named in
 ///       @c changes and not keyed @c start.key, (3) the start. Starting a key
 ///       that is already playing restarts it: the old voice loses its key and
-///       fades out over StepCommand::restartFrames. Pads and pending voices (still in
+///       fades out over StepCommand::restartFrames; an older copy of the same
+///       step still fading from an earlier restart ends over kDeclickSeconds,
+///       so a step never holds more than one fading copy. Pads and pending voices (still in
 ///       their start delay) are never touched by the others rule, so a GO
 ///       does not cancel an earlier step's pending start; an explicit change
 ///       naming a pending voice still applies (see ChangeSpec). Only the start
@@ -260,6 +262,7 @@ private:
     // One playing (or pending) sound. A slot is free when source == nullptr.
     struct Voice {
         VoiceKey key = 0;             // 0 once the voice lost its key (fading out after a restart, seek or second fade-out-all)
+        VoiceKey formerKey = 0;       // the step key a restart took away; lets the next restart cut this copy
         SoundSource* source = nullptr;
         int64_t position = 0;         // next source frame to read
         int64_t startFrame = 0;

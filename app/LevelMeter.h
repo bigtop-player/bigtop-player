@@ -23,6 +23,8 @@ public:
     static constexpr int kSegments = 20;
     /// @brief The bottom of the scale in dBFS; quieter lights nothing.
     static constexpr float kFloorDb = -40.0f;
+    /// @brief How fast the bars fall when the music gets quieter, in dB per second (they rise at once).
+    static constexpr float kFallDbPerSecond = 20.0f;
 
     /// @brief How many segments a level lights.
     /// @param level Linear peak level (1 = 0 dBFS).
@@ -35,7 +37,7 @@ public:
     void setPeaks(io::OutputPeaks peaks, juce::uint32 nowMs);
 
     /// @brief The levels the bars show now, linear.
-    /// @return The peaks given by the last setPeaks().
+    /// @return Per channel, the new peak or the falling previous level, whichever is higher.
     io::OutputPeaks shown() const noexcept { return shown_; }
 
     /// @brief The levels the peak ticks show now, linear.
@@ -49,6 +51,7 @@ public:
 private:
     io::OutputPeaks shown_{}, held_{};
     juce::uint32 heldSinceL_ = 0, heldSinceR_ = 0;  // when each held peak was set
+    juce::uint32 lastMs_ = 0;                      // the previous setPeaks(), for the fall
 };
 
 }  // namespace bigtop::app

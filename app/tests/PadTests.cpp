@@ -520,3 +520,17 @@ TEST_CASE("a file dropped on a pad clears the pad's old start and end") {
 }
 
 }  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("A pad's countdown and progress line follow its start and end") {
+    // 10 s file at 48 kHz, pad plays 1 s .. 3 s, the voice is 1.5 s into the file.
+    const auto p = padTime(480000, 1.0, 3.0, 72000);
+    CHECK(p.remainingFrames == 72000);  // 1.5 s left to the end point, not 8.5 s to the file end
+    CHECK(p.progress == 0.25f);
+    const auto whole = padTime(480000, 0.0, std::nullopt, 240000);
+    CHECK(whole.remainingFrames == 240000);
+    CHECK(whole.progress == 0.5f);
+}
+
+}  // namespace bigtop::app

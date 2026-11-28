@@ -305,10 +305,21 @@ void Engine::startVoice(const StartSpec& spec, int64_t restartFrames) noexcept {
     // (silent). A sounding one loses its key to the new voice and fades out
     // like any sound a GO ends: over restartFrames (never faster than the
     // declick), unless it already fades out, which keeps its own fade.
+    // At most one fading copy per step: hammered GOs would otherwise fill the
+    // pool with copies and a later GO of another step would be dropped. The
+    // older copy goes over the declick, so the cut never clicks.
+    if (spec.key < kPadKeyBase)
+        for (Voice& older : voices_)
+            if (older.source && older.key == 0 && older.formerKey == spec.key) {
+                older.declick.fadeTo(0.0f, declickFrames());
+                older.stopWhenSilent = true;
+                older.formerKey = 0;
+            }
     for (Voice& old : voices_) {
         if (!old.source || old.key == 0 || old.key != spec.key) continue;
         if (old.delay > 0 || frozen(old)) { endVoice(old); continue; }
         if (timecodeVoice_ == &old) timecodeVoice_ = nullptr;  // the new voice takes the role if it drives
+        old.formerKey = old.key;
         old.key = 0;
         if (!old.stopWhenSilent) {
             old.programmed.fadeTo(0.0f, std::max(restartFrames, declickFrames()));

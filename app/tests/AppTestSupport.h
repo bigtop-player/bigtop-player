@@ -7,7 +7,10 @@
 /// waitUntil() may wait in real time (at most 2 s each).
 #pragma once
 
+#include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <memory>
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -39,6 +42,31 @@ struct AppTestAccess {
     static juce::TextButton& goButton(MainComponent& m) { return m.goButton_; }
     /// @brief The session. @param m The main component. @return Its session.
     static ShowSession& session(MainComponent& m) { return m.session_; }
+    /// @brief The alert banner. @param m The main component. @return Its child.
+    static AlertBanner& alertBanner(MainComponent& m) { return m.alertBanner_; }
+    /// @brief The Show check panel. @param m The main component. @return Its child.
+    static ShowCheckPanel& showCheckPanel(MainComponent& m) { return m.showCheck_; }
+    /// @brief The start panel. @param m The main component. @return Its child.
+    static StartPanel& startPanel(MainComponent& m) { return m.start_; }
+    /// @brief The start panel's message line. @param p The panel. @return The label.
+    static juce::Label& startError(StartPanel& p) { return p.error_; }
+    /// @brief Opens a show folder as the Open chooser does. @param p The panel. @param dir The folder.
+    static void tryOpen(StartPanel& p, const juce::File& dir) { p.tryOpen(dir); }
+    /// @brief Presses "Shows...". @param m The main component.
+    static void chooseShow(MainComponent& m) { m.chooseShow(); }
+    /// @brief What Quit in the Show-mode question calls. @param m The main component. @return The handler, to replace.
+    static std::function<void()>& onQuitConfirmed(MainComponent& m) { return m.onQuitConfirmed_; }
+    /// @brief The Show check button of Show settings. @param p The panel. @return Its button.
+    static juce::Button& showCheckButton(ShowSettingsPanel& p) { return p.showCheck_; }
+    /// @brief The Close button of Show settings. @param p The panel. @return Its button.
+    static juce::Button& closeButton(ShowSettingsPanel& p) { return p.close_; }
+    /// @brief A status-bar button by its text. @param m The main component. @param text The button text.
+    /// @return The button, or nullptr when the bar has none with that text.
+    static juce::Button* statusBarButton(MainComponent& m, const juce::String& text) {
+        for (auto* c : m.status_.getChildren())
+            if (auto* b = dynamic_cast<juce::Button*>(c); b != nullptr && b->getButtonText() == text) return b;
+        return nullptr;
+    }
     /// @brief Forgets every waveform summary, as if none was read yet (rows draw the plain bar).
     /// @param s The session.
     static void dropPeaks(ShowSession& s) { s.peaks_.clear(); }
@@ -70,6 +98,8 @@ struct AppTestAccess {
     /// @brief The status bar's CLIP light (a button: a tap resets it).
     /// @param m The main component. @return Its status bar's CLIP button.
     static juce::Button& clipButton(MainComponent& m) { return m.status_.clip_; }
+    /// @brief The status bar's Ontime light. @param m The main component. @return The label.
+    static juce::Label& ontimeLight(MainComponent& m) { return m.status_.ontime_; }
     /// @brief The status bar's notice label (shown in place of the show name).
     /// @param m The main component. @return Its status bar's notice label.
     static juce::Label& statusMessage(MainComponent& m) { return m.status_.message_; }
@@ -163,6 +193,11 @@ struct AppTestAccess {
     /// @brief A row's position bar (events go to it in its own coordinates). @param row A row from row().
     /// @return It; fails the test when missing.
     static juce::Component& barOf(juce::Component& row);
+    /// @brief A running row's name label. @param row The row. @return Its label.
+    static juce::Label& nameOf(juce::Component& row);
+    /// @brief Text of a running row's label by its ID. @param row The row. @param id "name", "remaining", ...
+    /// @return The label's text.
+    static juce::String partText(juce::Component& row, const char* id);
 };
 
 /// @brief A fresh, empty folder under the system temp folder, deleted with everything in it.
@@ -231,11 +266,24 @@ public:
     /// @note For work on the hash and import threads, which report back with callAsync: real time
     ///       is allowed here as in waitHeads(). Fails the test (REQUIRE) when the time runs out.
     void waitUntil(const std::function<bool()>& done);
+    /// @brief Runs the message loop for @p ms of real time, so late results from worker threads arrive.
+    /// @param ms How long, in real milliseconds.
+    void pumpMessages(int ms);
 
     /// @brief Sets the output limiter's gain reduction the session reads (the engine is driven
     ///        directly here, so the real limiter never sees audio).
     /// @param db Gain reduction in dB, 0 = not limiting.
     void setGainReductionDb(float db) noexcept { gainReductionDb_ = db; }
+    /// @brief Holds every file check on its thread until released (see ShowSession::Offline::checkFiles).
+    /// @param hold True blocks checks that start from now; false lets them finish.
+    void holdFileChecks(bool hold) noexcept { holdChecks_ = hold; }
+    /// @brief How many file checks have started. @return The count since construction.
+    int fileChecks() const noexcept { return fileChecks_; }
+    /// @brief Every keep-awake request the app made, oldest first. @return The list.
+    std::vector<bool>& keepAwakeCalls() noexcept { return keepAwakeCalls_; }
+    /// @brief Every Ontime URL the session asked for, oldest first; waits until nothing is queued.
+    /// @return The URLs (no request leaves the machine: a stand-in answers 200).
+    std::vector<juce::String> ontimeUrls();
 
     /// @brief Sets the output peaks the session reads for the level meter (see setGainReductionDb()).
     /// @param peaks Linear peaks per channel, returned by every read until set again.
@@ -246,6 +294,10 @@ private:
     std::unique_ptr<io::AppSettings> settings_;
     juce::AudioDeviceManager devices_;
     ShowSession::Offline offline_;
+    std::atomic<bool> holdChecks_{false};
+    std::atomic<int> fileChecks_{0};
+    std::vector<bool> keepAwakeCalls_;
+    std::shared_ptr<std::pair<std::mutex, std::vector<juce::String>>> ontimeUrls_ = std::make_shared<std::pair<std::mutex, std::vector<juce::String>>>();
     float gainReductionDb_ = 0.0f;
     io::OutputPeaks outputPeaks_{};
     std::unique_ptr<MainComponent> main_;

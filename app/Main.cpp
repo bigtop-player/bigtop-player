@@ -49,7 +49,7 @@ public:
 class BigtopApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "Bigtop Player"; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    const juce::String getApplicationVersion() override { return BIGTOP_VERSION; }  // from CMake, with the tag's suffix
     void initialise(const juce::String&) override {
 #if JUCE_WINDOWS
         // The Art-Net sender sleeps ~1 ms between passes; Windows would round that up to ~15 ms,
@@ -78,6 +78,11 @@ public:
         }
         settings_ = std::make_unique<bigtop::io::AppSettings>(settingsFile());
         window_ = std::make_unique<MainWindow>(*settings_, devices_);
+    }
+    // In Show mode the window asks first; Quit in its question calls quit().
+    void systemRequestedQuit() override {
+        auto* main = window_ != nullptr ? dynamic_cast<bigtop::app::MainComponent*>(window_->getContentComponent()) : nullptr;
+        if (main == nullptr || main->quitRequested()) quit();
     }
     // The window (and with it the session and its audio output) goes before
     // the device manager it is registered with.

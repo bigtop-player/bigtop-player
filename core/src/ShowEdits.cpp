@@ -139,7 +139,7 @@ std::vector<DroppedStep> addDroppedFiles(Show& show, int index, const std::vecto
             o.file = addFile(show, newPath(d, show), d.sourceHash, importVersion);
             o.newFile = true;
         }
-        Step step = makeStep(*id, show.settings, Sound{.file = o.file});
+        Step step = makeStep(*id, show.settings, Sound{.file = o.file, .levelDb = show.settings.newStepLevelDb});
         step.name = d.name;
         steps.push_back(std::move(step));
     }

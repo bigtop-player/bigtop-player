@@ -73,6 +73,10 @@ juce::TextButton& AppTestAccess::fadeOf(juce::Component& row) { return part<juce
 
 juce::Component& AppTestAccess::barOf(juce::Component& row) { return part<juce::Component>(row, "bar"); }
 
+juce::Label& AppTestAccess::nameOf(juce::Component& row) { return part<juce::Label>(row, "name"); }
+
+juce::String AppTestAccess::partText(juce::Component& row, const char* id) { return part<juce::Label>(row, id).getText(); }
+
 NumberField& AppTestAccess::field(StepEditor& e, const juce::String& label) {
     INFO("editor field: " << label);
     // Fields are built right after their label (addNumber), so the next NumberField in build order is it.
@@ -129,6 +133,25 @@ TestApp::TestApp(const Show& show, int width, int height) {
     offline_.savedTime = "20:00:00";
     offline_.gainReductionDb = [this] { return gainReductionDb_; };
     offline_.outputPeaks = [this] { return outputPeaks_; };
+    offline_.keepAwake = [this](bool on) { keepAwakeCalls_.push_back(on); };
+    // Ontime: records each URL and answers 200, so no request leaves the machine.
+    offline_.http = [urls = ontimeUrls_] {
+        struct Recording : io::HttpGet {
+            explicit Recording(decltype(urls) u) : log(std::move(u)) {}
+            int get(const juce::String& url, int) override {
+                std::lock_guard<std::mutex> lock(log->first);
+                log->second.push_back(url);
+                return 200;
+            }
+            decltype(urls) log;
+        };
+        return std::unique_ptr<io::HttpGet>(std::make_unique<Recording>(urls));
+    };
+    offline_.checkFiles = [this](const std::vector<juce::File>& files) {
+        ++fileChecks_;
+        while (holdChecks_) juce::Thread::sleep(2);  // a slow disk, released by the test
+        return ShowSession::statFiles(files);
+    };
     offline_.adapters = {{juce::IPAddress("198.51.100.20"), juce::IPAddress("198.51.100.255"), "Ethernet"},
                          {juce::IPAddress("192.0.2.15"), juce::IPAddress("192.0.2.255"), "Wi-Fi"}};
     main_ = std::make_unique<MainComponent>(*settings_, devices_, &offline_);
@@ -166,14 +189,34 @@ void TestApp::waitHeads() {
     });
 }
 
+namespace {
+// One step of the message loop, or a short sleep when it is empty.
+void pumpOnce() {
+#if JUCE_MAC
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(5);  // macOS has no one-message step
+#else
+    if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) juce::Thread::sleep(5);  // queue empty: wait a little
+#endif
+}
+}  // namespace
+
+std::vector<juce::String> TestApp::ontimeUrls() {
+    waitUntil([this] { return !session().ontime().busy(); });
+    std::lock_guard<std::mutex> lock(ontimeUrls_->first);
+    std::vector<juce::String> out;
+    for (const auto& u : ontimeUrls_->second)
+        if (!u.endsWith("/api/version")) out.push_back(u);  // the health check is not what the tests look at
+    return out;
+}
+
+void TestApp::pumpMessages(int ms) {
+    const auto until = juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(ms);
+    while (juce::Time::getMillisecondCounter() < until) pumpOnce();
+}
+
 void TestApp::waitUntil(const std::function<bool()>& done) {
     const auto until = juce::Time::getMillisecondCounter() + 2000;  // real time: disk threads only
-    while (!done() && juce::Time::getMillisecondCounter() < until)
-#if JUCE_MAC
-        juce::MessageManager::getInstance()->runDispatchLoopUntil(5);  // macOS has no one-message step
-#else
-        if (!juce::detail::dispatchNextMessageOnSystemQueue(true)) juce::Thread::sleep(5);  // queue empty: wait a little
-#endif
+    while (!done() && juce::Time::getMillisecondCounter() < until) pumpOnce();
     REQUIRE(done());
 }
 

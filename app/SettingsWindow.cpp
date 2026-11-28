@@ -3,6 +3,8 @@
 // device list change while it is open is never mistaken for a choice).
 #include "SettingsWindow.h"
 
+#include "AboutPanel.h"
+
 namespace bigtop::app {
 
 SettingsWindow::SettingsWindow(juce::AudioDeviceManager& devices, ShowSession& session, std::function<void()> onClose)
@@ -12,8 +14,22 @@ SettingsWindow::SettingsWindow(juce::AudioDeviceManager& devices, ShowSession& s
     session_.setDeviceSettingsOpen(true);
     // No inputs, exactly two outputs, channels as stereo pairs, no MIDI.
     auto selector = std::make_unique<juce::AudioDeviceSelectorComponent>(devices, 0, 0, 2, 2, false, false, true, false);
-    selector->setSize(560, 420);
-    setContentOwned(selector.release(), true);
+    // The device choice on top, About below it: one window for "what is this machine running".
+    struct Content : juce::Component {
+        std::unique_ptr<juce::Component> selector;
+        AboutPanel about;
+        void resized() override {
+            auto r = getLocalBounds();
+            about.setBounds(r.removeFromBottom(AboutPanel::kHeight));
+            selector->setBounds(r);
+        }
+    };
+    auto content = std::make_unique<Content>();
+    content->selector = std::move(selector);
+    content->addAndMakeVisible(*content->selector);
+    content->addAndMakeVisible(content->about);
+    content->setSize(560, 420 + AboutPanel::kHeight);
+    setContentOwned(content.release(), true);
     setUsingNativeTitleBar(true);
     setResizable(true, false);
     centreWithSize(getWidth(), getHeight());

@@ -11,7 +11,9 @@
 set(CMAKE_POLICY_DEFAULT_CMP0141 NEW)
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
-project(BigtopPlayer VERSION 0.1.0 LANGUAGES C CXX)
+project(BigtopPlayer VERSION 0.2.0 LANGUAGES C CXX)
+# The release job sets this from the tag (v0.2.0-rc1 -> "-rc1"); About and the app report it.
+set(BIGTOP_VERSION_SUFFIX "" CACHE STRING "Appended to the version, e.g. -rc1")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

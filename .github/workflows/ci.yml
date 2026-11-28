@@ -153,7 +153,12 @@ jobs:
       - *ninja
       - *compiler-cache
       - *compiler-launcher
-      - run: cmake -B build -DBIGTOP_BUILD_APP=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
+      # A release-candidate tag (v0.2.0-rc1) puts its suffix into the version the app reports.
+      - shell: bash
+        run: |
+          suffix=""
+          case "$GITHUB_REF" in refs/tags/v*-*) suffix="-${GITHUB_REF#refs/tags/v*-}" ;; esac
+          cmake -B build -DBIGTOP_BUILD_APP=ON -DFETCHCONTENT_UPDATES_DISCONNECTED=ON -DBIGTOP_VERSION_SUFFIX="$suffix"
       - run: cmake --build build --config Debug
       # The windowless GUI tests (app/tests); no window, audio device or packet. A CRT assert ends the exe with code 3, never a dialog.
       - run: ctest --test-dir build -C Debug -R "^app:" --output-on-failure
@@ -198,6 +203,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y doxygen
       # WARN_AS_ERROR = FAIL_ON_WARNINGS makes any Doxygen warning fail the job.
       - run: doxygen Doxyfile
+      - run: bash tools/tests/release-notes-test.sh
 
   # A v* tag in the public repository becomes a GitHub Release with the Windows zip.
   # Private copies of this workflow skip it, so a tag there publishes nothing.
@@ -209,6 +215,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The whole history and its tags: the notes list the commits since the last release.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           pattern: BigtopPlayer-windows-*
@@ -223,4 +233,6 @@ jobs:
           # A tag with a "-" (v0.2.0-rc1) is a release candidate: a prerelease, so "latest" stays the last final release.
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "$zip" --repo "$GITHUB_REPOSITORY" --generate-notes $pre
+          # Hand-written notes plus the feat/fix titles since the last release; no notes file, no release.
+          bash tools/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" "$zip" --repo "$GITHUB_REPOSITORY" --notes-file notes.md $pre

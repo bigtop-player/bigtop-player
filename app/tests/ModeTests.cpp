@@ -594,3 +594,96 @@ TEST_CASE("the GO mode frame follows the button and never lies on Pause, + Fade 
 }
 
 }  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("Keep awake follows the mode") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    auto& calls = app.keepAwakeCalls();
+    REQUIRE((calls.empty() || calls.back() == false));  // Edit mode lets the laptop sleep
+    AppTestAccess::pickMode(app.main(), ShowMode::Rehearsal);
+    app.tick();
+    CHECK(calls.back() == true);
+    AppTestAccess::pickMode(app.main(), ShowMode::Show);
+    app.tick();
+    CHECK(calls.back() == true);
+    AppTestAccess::pickMode(app.main(), ShowMode::Edit);
+    app.tick();
+    CHECK(calls.back() == false);
+}
+
+TEST_CASE("Quit in Show mode asks first, and Cancel keeps the app") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    bool quit = false;
+    AppTestAccess::onQuitConfirmed(app.main()) = [&] { quit = true; };
+    AppTestAccess::pickMode(app.main(), ShowMode::Show);
+    app.tick();
+    CHECK_FALSE(app.main().quitRequested());
+    auto* box = dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());
+    REQUIRE(box != nullptr);
+    CHECK(box->getNumButtons() == 2);
+    CHECK(box->getHelpText() == "Quit Bigtop Player during the show?");
+    box->exitModalState(0);  // Cancel
+    app.pumpMessages(50);
+    CHECK_FALSE(quit);
+    CHECK_FALSE(app.main().quitRequested());
+    box = dynamic_cast<juce::AlertWindow*>(juce::Component::getCurrentlyModalComponent());
+    REQUIRE(box != nullptr);
+    box->exitModalState(1);  // Quit
+    app.pumpMessages(50);
+    CHECK(quit);
+}
+
+TEST_CASE("Quit in Edit mode goes ahead") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    CHECK(app.main().quitRequested());
+    CHECK(juce::Component::getCurrentlyModalComponent() == nullptr);
+}
+
+}  // namespace bigtop::app
+
+namespace bigtop::app {
+
+TEST_CASE("Shows... while sounds play raises a banner and keeps the show") {
+    ManualClock clock;
+    TestApp app(threeSoundSteps());
+    app.waitHeads();
+    AppTestAccess::go(app.main());
+    app.audio(4);
+    AppTestAccess::chooseShow(app.main());
+    app.tick();
+    CHECK_FALSE(AppTestAccess::startPanel(app.main()).isVisible());
+    const auto a = app.session().currentAlert();
+    REQUIRE(a.has_value());
+    CHECK(a->text.isNotEmpty());
+}
+
+TEST_CASE("A show that opens clears the old failure text") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    auto& panel = AppTestAccess::startPanel(app.main());
+    panel.showFailure(juce::File::getCurrentWorkingDirectory().getChildFile("Gone show"), "could not read show.json", {});
+    REQUIRE(AppTestAccess::startError(panel).getText().isNotEmpty());
+    AppTestAccess::tryOpen(panel, app.session().showDir());
+    CHECK(AppTestAccess::startError(panel).getText().isEmpty());
+}
+
+TEST_CASE("A moved last show is named on the start panel") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    auto& panel = AppTestAccess::startPanel(app.main());
+    panel.showMissing("/shows/Winter gala");
+    CHECK(AppTestAccess::startError(panel).getText() == "'Winter gala' was not found at /shows/Winter gala");
+}
+
+TEST_CASE("The folder choosers start next to the last show, and the title names the show") {
+    const ManualClock clock;
+    TestApp app(threeSoundSteps());
+    CHECK(app.session().browseStart() == app.session().showDir().getParentDirectory());
+    CHECK(app.main().windowTitle() == juce::String::fromUTF8("Bigtop Player \xe2\x80\x93 Test show"));
+}
+
+}  // namespace bigtop::app

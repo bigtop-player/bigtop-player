@@ -244,6 +244,10 @@ Show parse(const json& root) {
         if (find(*st, "artnetTarget")) s.artnetTarget = getStr(*st, "artnetTarget", "settings");
         s.ontimeHost = getStr(*st, "ontimeHost", "settings");
         s.ontimePort = getInt(*st, "ontimePort", s.ontimePort, "settings");
+        // Before the switch existed a host meant "on", so such a show keeps working.
+        s.ontimeEnabled = find(*st, "ontimeEnabled") ? getBool(*st, "ontimeEnabled", "settings") : !s.ontimeHost.empty();
+        s.ontimeFollowTransport = getBool(*st, "ontimeFollowTransport", "settings");
+        s.newStepLevelDb = getNum(*st, "newStepLevelDb", s.newStepLevelDb, "settings");
         s.padRows = getInt(*st, "padRows", s.padRows, "settings");
         s.padCols = getInt(*st, "padCols", s.padCols, "settings");
         // The UI lays pads out from these, so out-of-range values must not load.
@@ -331,7 +335,8 @@ std::string toJson(const Show& show) {
                             {"pauseInShow", s.pauseInShow},
                             {"timecodeFps", s.timecodeFps}, {"loudnessTargetLufs", s.loudnessTargetLufs},
                             {"artnetTarget", s.artnetTarget}, {"ontimeHost", s.ontimeHost},
-                            {"ontimePort", s.ontimePort},
+                            {"ontimePort", s.ontimePort}, {"ontimeEnabled", s.ontimeEnabled},
+                            {"ontimeFollowTransport", s.ontimeFollowTransport}, {"newStepLevelDb", s.newStepLevelDb},
                             {"padRows", s.padRows}, {"padCols", s.padCols}}},
               {"files", files}, {"steps", steps}, {"pads", pads}, {"lastStepId", show.lastStepId}};
     return root.dump(2);

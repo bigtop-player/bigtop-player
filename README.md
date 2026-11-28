@@ -5,7 +5,9 @@ Licensed under AGPLv3.
 
 ## Features
 
-- Drop audio files (WAV, MP3, FLAC) on the list: each becomes a step, converted in the background.
+- Drop audio files (WAV, AIFF, FLAC, MP3, Ogg) on the list: each becomes a step, converted in the background with a progress bar on its row.
+- New steps start at -6 dB (a show setting), so there is headroom to push them louder.
+- A failed import has a Retry button on its row.
 - Steps that are playing are tinted green in the list, so you see at a glance where the show is.
 - One GO runs one step; the old sound fades out by itself, or keeps playing, as you choose.
 - Fade steps and per-sound changes: keep, go to a level, fade out, each with its own time.
@@ -17,7 +19,14 @@ Licensed under AGPLv3.
 - A CLIP light that comes on only when the output limiter is heard (more than 1 dB), and stays lit until you tap it; a stereo level meter next to it.
 - A pad grid for effects that play whatever the steps do, each with its own level and start and end points; drag a step onto a pad to reuse its sound.
 - Art-Net timecode for the lighting desk, with a choice of network adapter.
-- Export a show to one zip and import it on another system.
+- Export a show to one ZIP and import it on another system.
+- Every 10 s the app checks the show's audio files: a missing or changed one turns its row red and shows a banner over the list.
+- GO on a step whose file cannot play moves NEXT on to the next playable step and says why.
+- Show check (in Show settings) lists every problem in one place, or says All clear.
+- The system stays awake in Rehearsal and Show mode; closing the app in Show mode asks first.
+- Ontime: GO can start an Ontime cue, and Pause, Resume and Esc can follow; a status light shows whether Ontime answers.
+- Deleting a step that is playing asks first; its sound plays on.
+- About (in Settings) names the version, the licence and the project page.
 
 ![Edit mode with the demo show](docs/images/edit-mode.png)
 
@@ -75,7 +84,6 @@ cmake --build build --config Release
 - `--screenshots <folder>` renders the main screens (start panel, modes, editors, running sounds, pads; at 1024, 1366 and 1920 px wide) of a generated demo show to PNG files and quits, without opening a window or touching your settings; the exit code is 0 when all files were written.
 - `--docs-screenshots <folder>` renders the curated set used by this README and the wiki (laid out at 1920x1080, written at 1280x720) into `docs/images/` the same way.
 - A show is a plain folder you choose: `show.json`, `state.json`, `audio/` (imported FLAC files) and `backups/`.
-- The rehearsal list for the show system is [docs/rehearsal-checklist.md](docs/rehearsal-checklist.md).
 
 ## Moving a show to another system (export and import)
 
@@ -83,7 +91,7 @@ A show folder keeps every dropped file unchanged in `sources/` (named by its SHA
 Shows made before this feature have no originals; they export their FLACs instead.
 
 - **Export:** in Edit mode press "Shows..." to reach the start panel, then "Export show...". Pick a folder; the app writes `<ShowName>-YYYYMMDD-HHMM.bigtop.zip` there. It holds `show.json`, `state.json` and, for each audio file a step or pad uses, the original (the FLAC when there is no original). No backups, no unused files. Entries are stored uncompressed, so the ZIP is as big as the originals: smaller than the 48 kHz 24-bit FLACs for MP3s, about the same for WAVs. A ZIP holds at most 4 GB: a show whose audio adds up to more is refused before anything is written.
-- **Import:** on the start panel (also at launch) press "Import show...", pick the ZIP, then an empty folder. The ZIP is unpacked and checked (a damaged zip, a missing `show.json`, a `show.json` the app cannot read, any path leaving the folder, or two entries with the same name is refused and the folder is left empty), then the show opens in Edit mode. The FLACs the ZIP left out are converted again: their rows say "importing..." and GO is refused until they are done. The same happens when you open any show whose FLAC is gone but whose original is still in `sources/`.
+- **Import:** on the start panel (also at launch) press "Import show...", pick the ZIP, then an empty folder. The ZIP is unpacked and checked (a damaged ZIP, a missing `show.json`, a `show.json` the app cannot read, any path leaving the folder, or two entries with the same name is refused and the folder is left empty), then the show opens in Edit mode. The FLACs the ZIP left out are converted again: their rows say "importing..." and GO is refused until they are done. The same happens when you open any show whose FLAC is gone but whose original is still in `sources/`.
 
 ## How the step model works
 

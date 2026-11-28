@@ -20,6 +20,9 @@ public:
     /// @brief The show folder opened last.
     /// @return nullopt when unset or the folder no longer exists.
     std::optional<juce::File> lastShow() const;
+    /// @brief The stored last-show path, whether or not the folder is still there.
+    /// @return The full path; empty when none was stored.
+    juce::String lastShowPath() const;
 
     /// @brief Remembers the show folder.
     /// @param dir The show folder just opened.

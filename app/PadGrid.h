@@ -13,12 +13,27 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "ShowSession.h"
 
 namespace bigtop::app {
+
+/// @brief What a playing pad shows: time left and how far it is.
+struct PadTime {
+    int64_t remainingFrames = 0;  ///< @brief Frames left to the pad's end point (or the file's end).
+    float progress = 0.0f;        ///< @brief 0..1 through the pad's start..end range.
+};
+
+/// @brief A pad's countdown and progress line over its own range.
+/// @param fileFrames The file's length in frames at the engine rate.
+/// @param startSeconds The pad's start point.
+/// @param endSeconds The pad's end point; unset = the file's end.
+/// @param position The voice's position in the file, in frames.
+/// @return Remaining frames and progress, both clamped to the range.
+PadTime padTime(int64_t fileFrames, double startSeconds, std::optional<double> endSeconds, int64_t position);
 
 /// @brief Smallest pad button edge in px (touch target).
 inline constexpr int kPadMinPx = 48;

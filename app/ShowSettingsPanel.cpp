@@ -22,6 +22,12 @@ bool isIpv4(const juce::String& s) {
     return true;
 }
 
+// An Ontime host: an IPv4 address or a DNS name (letters, digits, dots, hyphens).
+bool isHostName(const juce::String& s) {
+    return isIpv4(s) || (s.length() <= 253 && s.containsOnly("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") &&
+                         !s.startsWithChar('.') && !s.startsWithChar('-') && !s.endsWithChar('-'));
+}
+
 template <class T>
 T& adopt(juce::Component& parent, std::vector<std::unique_ptr<juce::Component>>& owned, std::unique_ptr<T> c) {
     T& ref = *c;
@@ -39,6 +45,11 @@ ShowSettingsPanel::ShowSettingsPanel(ShowSession& session) : session_(session) {
     close_.onClick = [this] {
         if (onClose) onClose();
     };
+    showCheck_.setWantsKeyboardFocus(false);
+    showCheck_.onClick = [this] {
+        if (onShowCheck) onShowCheck();
+    };
+    addAndMakeVisible(showCheck_);
     view_.setViewedComponent(&content_, false);
     view_.setScrollBarsShown(true, false);
     view_.setWantsKeyboardFocus(false);
@@ -66,6 +77,7 @@ void ShowSettingsPanel::resized() {
     auto r = getLocalBounds().reduced(8, 6);
     auto top = r.removeFromTop(kRow);
     close_.setBounds(top.removeFromRight(100));
+    showCheck_.setBounds(top.removeFromRight(120).withTrimmedRight(8));
     title_.setBounds(top);
     view_.setBounds(r.withTrimmedTop(kGap));
     builtWidth_ = -1;
@@ -129,6 +141,10 @@ void ShowSettingsPanel::rebuild() {
     number("Default fade", NumberField::Format::Seconds, 0.0, kEditMaxSeconds, 0.5,
            [](const Show& s) { return s.settings.defaultFadeSeconds; },
            [](Show& s, double v) { s.settings.defaultFadeSeconds = v; });
+    // Headroom for dropped files: a new step can still be pushed louder on the fader.
+    number("Level for new steps", NumberField::Format::Db, -60.0, kMaxLevelDb, 0.5,
+           [](const Show& s) { return s.settings.newStepLevelDb; },
+           [](Show& s, double v) { s.settings.newStepLevelDb = v; });
 
     // Pause in Show mode: off by default, so Show mode keeps only what is safe in a show.
     auto& pauseInShow = adopt(content_, owned_, std::make_unique<juce::ToggleButton>("Pause in Show mode"));
@@ -251,6 +267,69 @@ void ShowSettingsPanel::rebuild() {
            [](Show& s, double v) { resizePadGrid(s, s.settings.padRows, static_cast<int>(v)); });
     label("At most " + juce::String(kMaxPads) + " pads in total.", 0, width, juce::Colours::grey);
     y += kRow + kGap;
+
+    // Ontime: off by default, so a show without Ontime sends nothing and shows no light.
+    const auto tick = [&](const juce::String& name, const juce::String& id, bool Settings::*member) {
+        auto& t = adopt(content_, owned_, std::make_unique<juce::ToggleButton>(name));
+        t.setComponentID(id);
+        t.setBounds(0, y, width, kRow);
+        t.setEnabled(editable);
+        const auto pull = [this, &t, member](bool) {
+            if (session_.isOpen()) t.setToggleState(session_.controller().show().settings.*member, juce::dontSendNotification);
+        };
+        t.onClick = [this, &t, member, pull] {
+            const bool on = t.getToggleState();
+            session_.edit(Action::ShowSettings, [on, member](Show& s) {
+                if (s.settings.*member == on) return false;
+                s.settings.*member = on;
+                return true;
+            });
+            pull(true);
+        };
+        pulls_.push_back(pull);
+        pull(true);
+        y += kRow + kGap;
+    };
+    tick("Send cues to Ontime", "ontimeEnabled", &Settings::ontimeEnabled);
+    label("Ontime host", 0, 150);
+    auto& host = adopt(content_, owned_, std::make_unique<juce::TextEditor>());
+    host.setComponentID("ontimeHost");
+    host.setBounds(150, y, width - 150, kRow);
+    host.setInputRestrictions(253);
+    host.setEnabled(editable);
+    const auto pullHost = [this, &host](bool force) {
+        if (session_.isOpen() && (force || !host.hasKeyboardFocus(false)))
+            host.setText(juce::String(session_.controller().show().settings.ontimeHost), false);
+    };
+    const auto commitHost = [this, &host, pullHost] {
+        const auto typed = host.getText().trim();
+        if (session_.isOpen() && typed.toStdString() != session_.controller().show().settings.ontimeHost) {
+            if (typed.isEmpty() || isHostName(typed))
+                session_.edit(Action::ShowSettings, [&](Show& s) {
+                    s.settings.ontimeHost = typed.toStdString();
+                    return true;
+                });
+            else
+                session_.flash("Not a host name or IPv4 address");
+        }
+        pullHost(true);
+    };
+    host.onReturnKey = [&host, commitHost] {
+        commitHost();
+        host.giveAwayKeyboardFocus();
+    };
+    host.onEscapeKey = [&host, pullHost] {
+        pullHost(true);
+        host.giveAwayKeyboardFocus();
+    };
+    host.onFocusLost = commitHost;
+    pulls_.push_back(pullHost);
+    pullHost(true);
+    y += kRow + kGap;
+    number("Ontime port", NumberField::Format::Count, 1, 65535, 1.0,
+           [](const Show& s) { return static_cast<double>(s.settings.ontimePort); },
+           [](Show& s, double v) { s.settings.ontimePort = static_cast<int>(v); });
+    tick("Pause, Resume and Esc follow in Ontime", "ontimeFollow", &Settings::ontimeFollowTransport);
 
     status_ = &label("", 0, width, juce::Colours::grey);
     status_->setText(session_.sender().status().text, juce::dontSendNotification);

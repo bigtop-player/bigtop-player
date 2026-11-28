@@ -7,9 +7,9 @@ Short pages for the person running the show. The screenshots show an invented "D
 3. [Building a show](Building-a-show.md): the step editor, fade steps, changes, "everything else", reordering.
 4. [Running a show](Running-a-show.md): GO, fade out, pause, faders, Keep, pads.
 5. [Timecode and Art-Net](Timecode-and-Art-Net.md): sending timecode to the lighting desk.
-6. [Export and import](Export-and-import.md): moving a show to another laptop.
+6. [Export and import](Export-and-import.md): moving a show to another system.
 7. [Troubleshooting](Troubleshooting.md): known limits and what to do.
 
-The full rehearsal list for the show laptop is [docs/rehearsal-checklist.md](../rehearsal-checklist.md).
+Before a show, run it once on the show system with the real audio interface and lighting network: every button, GO through the whole list, unplug and replug the interface, and Show check.
 
 ![Edit mode with the demo show](../images/edit-mode.png)

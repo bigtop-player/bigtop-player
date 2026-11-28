@@ -21,6 +21,8 @@ namespace bigtop::app {
 /// @brief New / Open / Restore backup / Export / Import, with the last message in plain text.
 /// @note Message thread.
 class StartPanel : public juce::Component {
+    friend struct AppTestAccess;
+
 public:
     /// @brief Builds the panel.
     /// @param session Session the chosen folder is opened in; must outlive the panel.
@@ -33,6 +35,11 @@ public:
     /// @param error Reason, as ShowSession gave it.
     /// @param backups Loadable backups, newest first; empty = no restore offer.
     void showFailure(const juce::File& dir, const std::string& error, std::vector<juce::File> backups);
+
+    /// @brief Says that the last show's folder is gone (moved or deleted), so the
+    ///        operator knows why the start panel came up instead of the show.
+    /// @param path The stored path of that folder.
+    void showMissing(const juce::String& path);
 
     /// @brief Lays out the buttons (JUCE callback).
     void resized() override;
@@ -47,6 +54,7 @@ private:
     void exportTo(const juce::File& folder);
     void importFrom(const juce::File& zip, const juce::File& emptyDir);
     void note(const juce::String& text, bool isError);
+    void opened();  // clears an old failure, then tells the owner
     void setBusy(bool busy);
 
     ShowSession& session_;

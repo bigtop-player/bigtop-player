@@ -7,6 +7,7 @@
 ///        imported gapless (encoder delay and padding removed).
 #pragma once
 
+#include <functional>
 #include <string>
 
 #include <juce_core/juce_core.h>
@@ -79,6 +80,9 @@ struct ImportResult {
 ///       nothing is trimmed.
 /// @note The finished FLAC is read back (length, rate, channels) before the
 ///       rename, since JUCE cannot report errors when the file is closed.
-ImportResult convertToShowAudio(const juce::File& source, const juce::File& target);
+/// @param progress Optional: called on the converting thread with 0..1 as the
+///        output grows, at most every 100 ms, and once with 1 on success.
+ImportResult convertToShowAudio(const juce::File& source, const juce::File& target,
+                                const std::function<void(float)>& progress = {});
 
 }  // namespace bigtop::io

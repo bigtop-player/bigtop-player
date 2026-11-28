@@ -3,6 +3,8 @@
 // fixtures/ (see fixtures/README.md). No audio hardware, no message loop.
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -366,8 +368,48 @@ TEST_CASE("chooseAudioTarget avoids files on disk and paths in the show") {
     CHECK(chooseAudioTarget(audio, "other", show) == audio.getChildFile("other (2).flac"));  // case-insensitive file systems
 }
 
-TEST_CASE("isImportable accepts .flac in any case; refuses .aiff, .txt") {
-    for (const char* ok : {"a.wav", "a.WAV", "a.mp3", "a.Mp3", "a.flac", "a.FLAC"}) CHECK(isImportable(juce::File::getCurrentWorkingDirectory().getChildFile(ok)));
-    for (const char* no : {"a.aiff", "a.txt", "wav", "a.wav.txt"})
+TEST_CASE("isImportable accepts WAV, AIFF, FLAC, MP3 and Ogg in any case; refuses .txt") {
+    for (const char* ok : {"a.wav", "a.WAV", "a.mp3", "a.Mp3", "a.flac", "a.FLAC", "a.aiff", "a.AIF", "a.ogg"})
+        CHECK(isImportable(juce::File::getCurrentWorkingDirectory().getChildFile(ok)));
+    for (const char* no : {"a.m4a", "a.txt", "wav", "a.wav.txt"})
         CHECK_FALSE(isImportable(juce::File::getCurrentWorkingDirectory().getChildFile(no)));
+}
+TEST_CASE("Import reports rising progress, at most every 100 ms, and ends at 1") {
+    TempDir t;
+    const auto src = t.dir.getChildFile("long.wav"), dst = t.dir.getChildFile("long.flac");
+    writeWav(src, 44100.0, 2, 44100 * 20);  // 20 s, resampled: long enough for several reports
+    std::vector<float> seen;
+    const auto start = juce::Time::getMillisecondCounter();
+    const auto r = convertToShowAudio(src, dst, [&](float p) { seen.push_back(p); });
+    const auto took = juce::Time::getMillisecondCounter() - start;
+    REQUIRE(r.ok);
+    REQUIRE_FALSE(seen.empty());
+    CHECK(seen.back() == 1.0f);
+    CHECK(std::is_sorted(seen.begin(), seen.end()));
+    CHECK(seen.size() <= took / 100 + 2);
+}
+TEST_CASE("AIFF and Ogg Vorbis import to 48 kHz FLAC of the same length") {
+    for (const char* ext : {"aiff", "ogg"}) {
+        TempDir t;
+        const auto src = t.dir.getChildFile(juce::String("in.") + ext), dst = t.dir.getChildFile("out.flac");
+        {
+            juce::AudioBuffer<float> b(2, 88200);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < b.getNumSamples(); ++i) b.setSample(ch, i, sample(ch, i, 44100.0));
+            std::unique_ptr<juce::AudioFormat> f;
+            if (juce::String(ext) == "aiff") f = std::make_unique<juce::AiffAudioFormat>();
+            else f = std::make_unique<juce::OggVorbisAudioFormat>();
+            std::unique_ptr<juce::OutputStream> out = std::make_unique<juce::FileOutputStream>(src);
+            auto w = f->createWriterFor(out, juce::AudioFormatWriterOptions{}.withSampleRate(44100.0).withNumChannels(2).withBitsPerSample(16));
+            REQUIRE(w != nullptr);
+            REQUIRE(w->writeFromAudioSampleBuffer(b, 0, b.getNumSamples()));
+        }
+        CHECK(isImportable(src));
+        const auto r = convertToShowAudio(src, dst);
+        INFO(ext << ": " << r.error);
+        REQUIRE(r.ok);
+        auto reader = open(dst);
+        REQUIRE(reader != nullptr);
+        CHECK(std::abs(reader->lengthInSamples - 96000) <= 2048);  // Ogg rounds to its packets
+    }
 }

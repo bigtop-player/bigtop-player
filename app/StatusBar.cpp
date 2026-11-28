@@ -35,11 +35,24 @@ StatusBar::StatusBar() {
     }
     artNet_.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(artNet_);
+    ontime_.setJustificationType(juce::Justification::centredLeft);
+    addChildComponent(ontime_);  // shown by update() only while the show sends to Ontime
     meter_.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(meter_);
 }
 
-void StatusBar::update(const ShowSession::Status& s, bool showOpen, ShowMode mode, const io::ArtNetStatus& artNet) {
+void StatusBar::update(const ShowSession::Status& s, bool showOpen, ShowMode mode, const io::ArtNetStatus& artNet,
+                       io::OntimeClient::State ontime, const juce::String& ontimeError) {
+    using OS = io::OntimeClient::State;
+    // A show without Ontime shows no light at all, so it never asks for attention.
+    if (ontime_.isVisible() != (ontime != OS::Off)) {
+        ontime_.setVisible(ontime != OS::Off);
+        resized();
+    }
+    setLabel(ontime_,
+             ontime == OS::Connected ? "Ontime: connected" : ontime == OS::Error ? "Ontime: error" : "Ontime: checking",
+             ontime == OS::Connected ? kOk : ontime == OS::Error ? kBad : kDim);
+    ontime_.setTooltip(ontimeError);
     setLabel(audio_, s.audioText, s.audioOk ? kOk : kBad);
     // The light says the state; anything unusual in the sender text (an adapter
     // that is missing, a failed send) is the tooltip; the colour comes from the state only.
@@ -82,6 +95,7 @@ void StatusBar::resized() {
     clip_.setBounds(r.removeFromLeft(64).reduced(4, 2));  // 48 px tall: a touch target
     meter_.setBounds(r.removeFromLeft(260).reduced(4, 0));  // wide enough for segments and a readable dB scale
     artNet_.setBounds(r.removeFromLeft(kArtNetWidth));
+    if (ontime_.isVisible()) ontime_.setBounds(r.removeFromLeft(kArtNetWidth));
     middle_ = r;
     layoutMiddle();
 }

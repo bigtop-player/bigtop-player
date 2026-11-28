@@ -6,6 +6,8 @@
 
 #include "bigtop/Engine.h"  // kMaxChanges
 #include "bigtop/ShowEdits.h"
+#include "bigtop/ShowJson.h"
+#include <nlohmann/json.hpp>
 
 using namespace bigtop;
 
@@ -155,9 +157,9 @@ TEST_CASE("Dropped files become steps at the drop position, in drop order, named
     CHECK(s.steps[2].id == out[1].step);
     CHECK(s.steps[1].name == "Intro");
     CHECK(s.steps[2].name == "Walk-in");
-    Step expected = makeStep(out[0].step, s.settings, Sound{.file = out[0].file});
+    Step expected = makeStep(out[0].step, s.settings, Sound{.file = out[0].file, .levelDb = s.settings.newStepLevelDb});
     expected.name = "Intro";
-    CHECK(s.steps[1] == expected);  // makeStep defaults otherwise
+    CHECK(s.steps[1] == expected);  // makeStep defaults otherwise, at the show's level for new steps
     CHECK(out[0].newFile);
     CHECK(out[1].newFile);
     REQUIRE(s.files.size() == 2);
@@ -248,4 +250,20 @@ TEST_CASE("A drop stamps new files with the import version and re-imports older 
     CHECK(s.files[1].importVersion == 2);
     // now current: the same content is merged
     CHECK_FALSE(addDroppedFiles(s, 0, {{"Old", "aa"}}, 2, numberedPath)[0].newFile);
+}
+TEST_CASE("Dropped files get the show's level for new steps", "[edits]") {
+    Show s;
+    s.settings.newStepLevelDb = -6.0;
+    addDroppedFiles(s, 0, {{"Intro", "aa"}}, 1, numberedPath);
+    REQUIRE(s.steps.size() == 1);
+    CHECK(s.steps[0].sound->levelDb == -6.0);
+}
+TEST_CASE("The level for new steps defaults to -6 dB, also for an older show, and survives JSON", "[edits]") {
+    CHECK(Settings{}.newStepLevelDb == -6.0);
+    auto j = nlohmann::json::parse(toJson(Show{}));
+    j["settings"].erase("newStepLevelDb");
+    CHECK(fromJson(j.dump()).settings.newStepLevelDb == -6.0);
+    Show show;
+    show.settings.newStepLevelDb = -3.0;
+    CHECK(fromJson(toJson(show)).settings.newStepLevelDb == -3.0);
 }
